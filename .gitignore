@@ -5,4 +5,5 @@ __pycache__/
 !logs/whale_journal.csv
 data/
 dashboard.html
+artifact_dashboard.html
 darkpool.html
