@@ -186,38 +186,50 @@ if showTable and barstate.islast
         table.cell(t, 4, row, str.tostring(array.get(scores, idx), "#"), text_color = color.white, text_size = size.tiny)
         table.cell(t, 5, row, sig, text_color = color.white, bgcolor = sigcol, text_size = size.tiny)
 
-// ---- Chart-symbol signal + ATR swing levels ---------------------------------
+// ---- Chart-symbol signal + LOCKED ATR swing levels --------------------------
+// Levels are captured on the bar the signal first turns ROTATE IN and held
+// fixed until the signal ends — so they do NOT drift with price.
 curTk = syminfo.ticker
 curIdx = array.indexof(tks, curTk)
-var line entL = na
-var line stpL = na
-var line tgtL = na
-var label lbl = na
-if showLevels and barstate.islast and curIdx >= 0
-    // rank position of the chart symbol
-    rankpos = array.indexof(order, curIdx)
-    sig = f_signal(curIdx, rankpos)
-    atr_i = array.get(atrs, curIdx)
-    entry = close
-    stop  = close - 2.0 * atr_i
-    tgt   = close + 3.0 * atr_i
-    line.delete(entL)
-    line.delete(stpL)
-    line.delete(tgtL)
-    if sig == "ROTATE IN"
-        entL := line.new(bar_index - 1, entry, bar_index + 20, entry, color = color.blue,  width = 2)
-        stpL := line.new(bar_index - 1, stop,  bar_index + 20, stop,  color = color.red,   width = 1, style = line.style_dashed)
-        tgtL := line.new(bar_index - 1, tgt,   bar_index + 20, tgt,   color = color.green, width = 1, style = line.style_dashed)
-    label.delete(lbl)
-    lblcol = sig == "ROTATE IN" ? color.green : sig == "ROTATE OUT" ? color.red : color.gray
-    lbl := label.new(bar_index, high, text = curTk + "  #" + str.tostring(rankpos + 1) + "\n" + sig,
-              style = label.style_label_down, color = lblcol, textcolor = color.white, size = size.small)
 
-// ---- Alerts (fire when the chart symbol's signal changes) -------------------
+var bool   inPos     = false
+var float  lockEntry = na
+var float  lockStop  = na
+var float  lockTgt   = na
+var int    lockBar   = na
+var line   entL = na
+var line   stpL = na
+var line   tgtL = na
+var label  lbl  = na
 var string prevSig = ""
-if barstate.isconfirmed and curIdx >= 0
+
+if curIdx >= 0
     rankpos = array.indexof(order, curIdx)
-    sig = f_signal(curIdx, rankpos)
-    if sig != prevSig and prevSig != ""
-        alert(curTk + " rotation signal: " + sig + " (rank #" + str.tostring(rankpos + 1) + ")", alert.freq_once_per_bar)
-    prevSig := sig
+    sig     = f_signal(curIdx, rankpos)
+    atr_i   = array.get(atrs, curIdx)
+
+    // enter/exit decisions on closed bars only (no intraday flicker)
+    if barstate.isconfirmed
+        if sig == "ROTATE IN" and not inPos
+            inPos     := true
+            lockEntry := close
+            lockStop  := close - 2.0 * atr_i
+            lockTgt   := close + 3.0 * atr_i
+            lockBar   := bar_index
+        if sig != "ROTATE IN" and inPos
+            inPos := false
+        if sig != prevSig and prevSig != ""
+            alert(curTk + " rotation signal: " + sig + " (rank #" + str.tostring(rankpos + 1) + ")", alert.freq_once_per_bar)
+        prevSig := sig
+
+    // draw the fixed levels on the latest bar
+    if showLevels and barstate.islast
+        line.delete(entL)
+        line.delete(stpL)
+        line.delete(tgtL)
+        label.delete(lbl)
+        if inPos
+            entL := line.new(lockBar, lockEntry, bar_index + 10, lockEntry, color = color.blue,  width = 2)
+            stpL := line.new(lockBar, lockStop,  bar_index + 10, lockStop,  color = color.red,   width = 1, style = line.style_dashed)
+            tgtL := line.new(lockBar, lockTgt,   bar_index + 10, lockTgt,   color = color.green, width = 1, style = line.style_dashed)
+            lbl  := label.new(bar_index, lockTgt, text = curTk + " " + sig + "\nE " + str.tostring(lockEntry, "#.##") + "  S " + str.tostring(lockStop, "#.##") + "  T " + str.tostring(lockTgt, "#.##"), style = label.style_label_left, color = color.new(color.blue, 20), textcolor = color.white, size = size.small)
