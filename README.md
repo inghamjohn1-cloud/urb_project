@@ -135,8 +135,37 @@ python dashboard.py --no-flow          # price-only, skip flow calls
 
 The page is a single HTML file with everything inlined (no external assets),
 respects your system light/dark preference, has a manual theme toggle, and
-collapses to a phone layout. Pair it with a cron job / the roadmap's automated
-Routine to have a fresh dashboard waiting each trading morning.
+collapses to a phone layout.
+
+### Token-free rendering (for automation)
+
+`dashboard.py` calls the REST API and needs `UW_TOKEN`. For scheduled runs where
+no token is configured, `render_from_mcp.py` builds the *same* dashboard from
+JSON files saved by the Unusual Whales **MCP** tool `get_ticker_ohlc_latest_or_date`
+(one file per ticker, daily OHLC + per-day options flow):
+
+```bash
+# one <TICKER>.json per file in data/ (SPY + the 11 SPDR ETFs), then:
+python render_from_mcp.py --data-dir data --out dashboard.html
+```
+
+This is the path used by the [automated morning Routine](#automated-morning-routine).
+
+## Automated morning Routine
+
+A scheduled Routine regenerates the dashboard **every trading weekday at
+8:00 AM ET** and pushes it to you (phone + email). Each firing spins up a fresh
+session that:
+
+1. checks out this branch,
+2. pulls daily OHLC + options flow for SPY and the 11 sector ETFs via the
+   Unusual Whales MCP connector (no API token needed),
+3. renders the dashboard with `render_from_mcp.py`, and
+4. sends you the HTML plus a short summary (regime + rotate-in / rotate-out).
+
+Manage it from chat: "list my routines", "change the dashboard routine to
+7 AM", "pause the dashboard routine". Note the schedule is stored in UTC, so it
+lands one hour earlier (7 AM ET) during US winter (EST) unless updated.
 
 ## Files
 
@@ -145,6 +174,7 @@ Routine to have a fresh dashboard waiting each trading morning.
 | `scan.py`     | Live scanner CLI — fetch, score, report, CSV export |
 | `backtest.py` | Historical backtester — replays the signals, metrics vs SPY |
 | `dashboard.py`| Daily HTML dashboard — regime KPIs, ranking, swing levels |
+| `render_from_mcp.py`| Token-free renderer — same dashboard from MCP JSON files |
 | `rotation.py` | Indicators (returns, SMA, ATR) and the scoring/ranking logic |
 | `uw_client.py`| Minimal Unusual Whales REST client (auth, retries, unwrapping) |
 | `.env.example`| Template for your API token |
@@ -173,7 +203,7 @@ Built on the same Unusual Whales / market-data stack:
 - ~~**Backtester**~~ — ✅ done (`backtest.py`).
 - **TradingView Pine Script** — the same ranking as a chart indicator/strategy with alerts.
 - **Smart-money layer** — dark-pool prints + congress/insider buys as a conviction filter.
-- **Automated Routine** — run pre-market each trading day and push the results.
+- ~~**Automated Routine**~~ — ✅ done (weekday 8 AM ET, pushes the dashboard).
 
 ## Disclaimer
 
