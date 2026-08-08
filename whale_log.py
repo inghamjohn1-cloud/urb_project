@@ -66,7 +66,10 @@ def flow_entry(history_rows, win=5, base=60):
     }
 
 
-def darkpool_entry(dp_rows, close):
+def darkpool_entry(dp_rows, close, have_data):
+    if not have_data:
+        # no dark-pool fetch for this day: blank, NOT zero (zero means "fetched, none found")
+        return {"dp_prints": "", "dp_premium": "", "dp_largest": "", "dp_at_or_above_close": ""}
     prints = [r for r in dp_rows if _f(r.get("premium")) > 0]
     if not prints:
         return {"dp_prints": 0, "dp_premium": 0, "dp_largest": 0, "dp_at_or_above_close": ""}
@@ -92,12 +95,14 @@ def main(argv=None):
     entry["ticker"] = args.ticker.upper()
 
     dp = []
+    have_dp = False
     if args.darkpool and os.path.exists(args.darkpool):
         try:
             dp = _rows(args.darkpool)
+            have_dp = True
         except (OSError, json.JSONDecodeError):
             pass
-    entry.update(darkpool_entry(dp, entry["close"]))
+    entry.update(darkpool_entry(dp, entry["close"], have_dp))
 
     os.makedirs(os.path.dirname(args.journal) or ".", exist_ok=True)
     exists = os.path.exists(args.journal)
@@ -113,9 +118,10 @@ def main(argv=None):
         if not exists:
             w.writeheader()
         w.writerow(entry)
+    dp_note = (f"DP ${entry['dp_premium']/1e6:.0f}M in {entry['dp_prints']} prints"
+               if entry["dp_prints"] != "" else "DP n/a")
     print(f"  logged {entry['ticker']} {entry['date']}: close {entry['close']}, "
-          f"flow_z {entry['flow_z']} ({entry['flow_state']}), "
-          f"DP ${entry['dp_premium']/1e6 if entry['dp_premium'] else 0:.0f}M in {entry['dp_prints']} prints")
+          f"flow_z {entry['flow_z']} ({entry['flow_state']}), {dp_note}")
     return 0
 
 
