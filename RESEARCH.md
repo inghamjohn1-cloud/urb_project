@@ -19,6 +19,7 @@ Every number below was produced by code in this repo against saved raw data.
 | 8 | Single-name: FOLLOW unusual bullish options flow | +0.0%/1d, +0.1%/5d edge | ❌ no follow edge |
 | 9 | Single-name: FADE unusual bullish flow (euphoria) | −2.0% 21d edge in tech cohort (NVDA/TSLA/AMD/AAPL/META/PLTR)… | ⚠️ see row 10 |
 | 10 | **Row 9 robustness check** — same test on a diverse cohort (JPM/XOM/UNH/WMT/CAT/DIS) | **−0.25% 21d edge — the effect disappears out-of-sample** | ❌ does not generalize; at best a hot-momentum-name/regime artifact |
+| 11 | **Dealer gamma (GEX), 1y history, 5 watchlist names** — days with net gamma < 0 | Vol: next-day \|move\| +17% larger (2.13% vs 1.83%, mechanism confirmed). Direction: +0.9%/5d, +1.6%/10d, +3.6%/21d pooled (n≈125 days) | ⚠️ vol effect credible; directional edge promising but suspect — events cluster into ~15–25 episodes, single year, NVDA's number is essentially one episode (April bottom). Same regime-risk that killed rows 9. Now under forward test (gex_negative in whale_eval) |
 
 ## The three conclusions
 
