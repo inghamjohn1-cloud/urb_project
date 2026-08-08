@@ -154,18 +154,30 @@ This is the path used by the [automated morning Routine](#automated-morning-rout
 ## Automated morning Routine
 
 A scheduled Routine regenerates the dashboard **every trading weekday at
-8:00 AM ET** and pushes it to you (phone + email). Each firing spins up a fresh
-session that:
+8:00 AM ET** and delivers it to you. Each firing:
 
 1. checks out this branch,
 2. pulls daily OHLC + options flow for SPY and the 11 sector ETFs via the
    Unusual Whales MCP connector (no API token needed),
-3. renders the dashboard with `render_from_mcp.py`, and
-4. sends you the HTML plus a short summary (regime + rotate-in / rotate-out).
+3. collects the tool outputs with `collect_mcp_data.py`,
+4. renders the dashboard with `render_from_mcp.py`, and
+5. sends you the HTML plus a one-line summary (regime + rotate-in / rotate-out).
+
+**Why it binds to a session instead of spawning a fresh one:** market data here
+is only reachable through the Unusual Whales **MCP connector** (the environment's
+egress proxy blocks direct API calls), and connector tools are only present in a
+connector-holding session. So the Routine fires into this session, which holds
+the connector, and delivers the dashboard as a proactive file (phone
+notification).
+
+If you'd prefer a fresh-session Routine with email + push summaries, create it
+from the **claude.ai Routines UI**, where you can attach the "Unusual Whales"
+connector to the schedule (that attachment isn't available to programmatic
+setup). Point its prompt at the same steps above.
 
 Manage it from chat: "list my routines", "change the dashboard routine to
-7 AM", "pause the dashboard routine". Note the schedule is stored in UTC, so it
-lands one hour earlier (7 AM ET) during US winter (EST) unless updated.
+7 AM", "pause the dashboard routine". The schedule is stored in UTC, so it lands
+one hour earlier (7 AM ET) during US winter (EST) unless updated.
 
 ## Files
 
@@ -175,6 +187,7 @@ lands one hour earlier (7 AM ET) during US winter (EST) unless updated.
 | `backtest.py` | Historical backtester — replays the signals, metrics vs SPY |
 | `dashboard.py`| Daily HTML dashboard — regime KPIs, ranking, swing levels |
 | `render_from_mcp.py`| Token-free renderer — same dashboard from MCP JSON files |
+| `collect_mcp_data.py`| Gathers MCP tool-result files into a data dir (for the Routine) |
 | `rotation.py` | Indicators (returns, SMA, ATR) and the scoring/ranking logic |
 | `uw_client.py`| Minimal Unusual Whales REST client (auth, retries, unwrapping) |
 | `.env.example`| Template for your API token |
