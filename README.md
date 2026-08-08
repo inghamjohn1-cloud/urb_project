@@ -7,9 +7,10 @@ SPY, gates on trend, optionally confirms with **Unusual Whales** options-flow
 of** — with ATR-based entry/stop/target levels for the leaders.
 
 It ships with a **backtester** (`backtest.py`) that replays the exact same
-signals over years of history so you can validate the rules before trading
-them. See [Backtesting](#backtesting) and the [Roadmap](#roadmap) for what
-else can be built on the same data stack.
+signals over years of history, and a **daily dashboard** (`dashboard.py`) that
+renders the signals as a mobile-friendly HTML page you open each morning. See
+[Backtesting](#backtesting), [Daily dashboard](#daily-dashboard), and the
+[Roadmap](#roadmap) for what else can be built on the same data stack.
 
 ## What it does
 
@@ -112,12 +113,38 @@ The backtester runs on price/momentum/trend only; the live options-flow overlay
 (sector tide) is a real-time signal and is intentionally not modelled in
 historical replay.
 
+## Daily dashboard
+
+`dashboard.py` renders the live signals as a **self-contained, responsive,
+theme-aware HTML page** — open it on your phone before the open. It shows:
+
+- **Regime KPIs** — market regime, how many sectors to rotate into, breadth
+  above the 200-day, and the top-ranked sector.
+- **Sector ranking table** — 30-day price sparklines, 1M/3M/6M returns,
+  relative strength, trend and options-flow chips, a score bar, and the
+  rotate-in / hold / rotate-out signal for all 11 sectors.
+- **Swing levels** — Entry / Stop (2·ATR) / Target (3·ATR) and reward:risk
+  cards for the rotate-in leaders.
+
+```bash
+python dashboard.py                    # writes dashboard.html
+python dashboard.py --open             # write and open in your browser
+python dashboard.py --out ~/swing.html --top 4
+python dashboard.py --no-flow          # price-only, skip flow calls
+```
+
+The page is a single HTML file with everything inlined (no external assets),
+respects your system light/dark preference, has a manual theme toggle, and
+collapses to a phone layout. Pair it with a cron job / the roadmap's automated
+Routine to have a fresh dashboard waiting each trading morning.
+
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `scan.py`     | Live scanner CLI — fetch, score, report, CSV export |
 | `backtest.py` | Historical backtester — replays the signals, metrics vs SPY |
+| `dashboard.py`| Daily HTML dashboard — regime KPIs, ranking, swing levels |
 | `rotation.py` | Indicators (returns, SMA, ATR) and the scoring/ranking logic |
 | `uw_client.py`| Minimal Unusual Whales REST client (auth, retries, unwrapping) |
 | `.env.example`| Template for your API token |
@@ -142,7 +169,7 @@ in `rotation.py` (`MOM_WEIGHTS`, `LB_1M/3M/6M`, `SMA_FAST/SLOW`).
 
 Built on the same Unusual Whales / market-data stack:
 
-- **Daily swing dashboard** — HTML report of leaders + flow + dark-pool + entry levels.
+- ~~**Daily swing dashboard**~~ — ✅ done (`dashboard.py`).
 - ~~**Backtester**~~ — ✅ done (`backtest.py`).
 - **TradingView Pine Script** — the same ranking as a chart indicator/strategy with alerts.
 - **Smart-money layer** — dark-pool prints + congress/insider buys as a conviction filter.
