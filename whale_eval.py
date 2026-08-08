@@ -79,6 +79,8 @@ def evaluate(rows, min_events):
         "euphoria": lambda r: r.get("flow_state") == "euphoria",
         "capitulation": lambda r: r.get("flow_state") == "capitulation",
         "dp_surge": lambda r: dp_med and (_f(r.get("dp_premium")) or 0) > 2 * dp_med,
+        "gex_negative": lambda r: (_f(r.get("gex_net_gamma")) is not None
+                                   and _f(r.get("gex_net_gamma")) < 0),
     }
 
     report = {}

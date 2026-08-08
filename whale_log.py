@@ -26,7 +26,8 @@ import sys
 
 COLUMNS = ["date", "ticker", "close", "ret_21d", "ret_63d",
            "net_prem_5d", "flow_z", "flow_state",
-           "dp_prints", "dp_premium", "dp_largest", "dp_at_or_above_close"]
+           "dp_prints", "dp_premium", "dp_largest", "dp_at_or_above_close",
+           "gex_call_gamma", "gex_put_gamma", "gex_net_gamma"]
 
 
 def _f(v):
@@ -83,11 +84,31 @@ def darkpool_entry(dp_rows, close, have_data):
     }
 
 
+def gex_entry(gex_rows, entry_date):
+    """Dealer gamma exposure for the entry's date (or blank if absent)."""
+    blank = {"gex_call_gamma": "", "gex_put_gamma": "", "gex_net_gamma": ""}
+    if not gex_rows:
+        return blank
+    row = None
+    for r in sorted(gex_rows, key=lambda r: str(r.get("date", ""))):
+        if str(r.get("date", ""))[:10] <= entry_date:
+            row = r
+    if row is None:
+        return blank
+    cg, pg = _f(row.get("call_gamma")), _f(row.get("put_gamma"))
+    if cg is None or pg is None:
+        return blank
+    return {"gex_call_gamma": round(cg, 0), "gex_put_gamma": round(pg, 0),
+            "gex_net_gamma": round(cg + pg, 0)}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--ticker", required=True)
     ap.add_argument("--history", required=True)
     ap.add_argument("--darkpool", default=None)
+    ap.add_argument("--gex", default=None,
+                    help="get_greek_exposure_by_ticker result JSON (optional)")
     ap.add_argument("--journal", default="logs/whale_journal.csv")
     args = ap.parse_args(argv)
 
@@ -103,6 +124,14 @@ def main(argv=None):
         except (OSError, json.JSONDecodeError):
             pass
     entry.update(darkpool_entry(dp, entry["close"], have_dp))
+
+    gex = []
+    if args.gex and os.path.exists(args.gex):
+        try:
+            gex = _rows(args.gex)
+        except (OSError, json.JSONDecodeError):
+            pass
+    entry.update(gex_entry(gex, entry["date"]))
 
     os.makedirs(os.path.dirname(args.journal) or ".", exist_ok=True)
     exists = os.path.exists(args.journal)
@@ -120,8 +149,12 @@ def main(argv=None):
         w.writerow(entry)
     dp_note = (f"DP ${entry['dp_premium']/1e6:.0f}M in {entry['dp_prints']} prints"
                if entry["dp_prints"] != "" else "DP n/a")
+    if entry["gex_net_gamma"] != "":
+        gex_note = f"GEX {'+' if entry['gex_net_gamma'] >= 0 else ''}{entry['gex_net_gamma']/1e6:.2f}M ({'positive' if entry['gex_net_gamma'] >= 0 else 'NEGATIVE'} gamma)"
+    else:
+        gex_note = "GEX n/a"
     print(f"  logged {entry['ticker']} {entry['date']}: close {entry['close']}, "
-          f"flow_z {entry['flow_z']} ({entry['flow_state']}), {dp_note}")
+          f"flow_z {entry['flow_z']} ({entry['flow_state']}), {dp_note}, {gex_note}")
     return 0
 
 
