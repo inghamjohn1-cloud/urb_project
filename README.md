@@ -184,9 +184,9 @@ to the schedule (that attachment isn't available to programmatic setup). Point
 its prompt at the same steps above.
 
 Manage it from chat: "list my routines", "change the dashboard routine to
-5 AM PT", "pause the dashboard routine". The schedule is stored in UTC (13:00),
-so it lands one hour later in clock terms (7:00 AM PT) during US winter (PST)
-unless updated.
+7 AM PT", "pause the dashboard routine". The schedule is stored in UTC (13:00 =
+6:00 AM PDT), so it lands one hour earlier (5:00 AM PST) during US winter unless
+updated.
 
 ## Files
 
