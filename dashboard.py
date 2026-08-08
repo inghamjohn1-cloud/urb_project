@@ -34,7 +34,7 @@ from scan import load_dotenv, add_flow_confirmation
 # --------------------------------------------------------------------------
 # Small SVG sparkline (single series; colored by net change)
 # --------------------------------------------------------------------------
-def sparkline(closes: list[float], up: str, down: str, w: int = 120, h: int = 30) -> str:
+def sparkline(closes: list[float], up: str, down: str, w: int = 100, h: int = 30) -> str:
     pts = [c for c in closes if c is not None]
     if len(pts) < 2:
         return ""
@@ -92,7 +92,7 @@ CSS = """
 body{margin:0;background:var(--plane);color:var(--ink);
   font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
   font-size:15px;line-height:1.45;-webkit-text-size-adjust:100%}
-.wrap{max-width:1040px;margin:0 auto;padding:20px 16px 56px}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 56px}
 header.top{display:flex;justify-content:space-between;align-items:flex-start;
   gap:12px;flex-wrap:wrap;margin-bottom:6px}
 h1{font-size:20px;margin:0;letter-spacing:-.01em}
@@ -112,7 +112,7 @@ h1{font-size:20px;margin:0;letter-spacing:-.01em}
 .card h2{font-size:14px;margin:14px 14px 8px;color:var(--ink-2);font-weight:640}
 .scroll{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{padding:9px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--grid)}
+th,td{padding:8px 7px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--grid)}
 th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
 td.l,th.l{text-align:left}
 tbody tr:last-child td{border-bottom:none}
@@ -198,8 +198,37 @@ def _live_chip(chg) -> str:
     return f'<span class="chip {cls}">{arrow} {chg:+.1f}%</span>'
 
 
+def _money(v) -> str:
+    a = abs(v)
+    if a >= 1e9:
+        return f"${v/1e9:.1f}B"
+    if a >= 1e6:
+        return f"${v/1e6:.1f}M"
+    if a >= 1e3:
+        return f"${v/1e3:.0f}K"
+    return f"${v:.0f}"
+
+
+def _whale_chip(score, net_prem, title="") -> str:
+    if score is None:
+        return '<span class="chip na">–</span>'
+    if score >= 0.33:
+        cls, mark = "up", "▲▲"
+    elif score >= 0.10:
+        cls, mark = "up", "▲"
+    elif score <= -0.33:
+        cls, mark = "dn", "▼▼"
+    elif score <= -0.10:
+        cls, mark = "dn", "▼"
+    else:
+        cls, mark = "na", "·"
+    prem = f" {_money(net_prem)}" if net_prem is not None else ""
+    t = f' title="{html.escape(title)}"' if title else ""
+    return f'<span class="chip {cls}"{t}>{mark}{prem}</span>'
+
+
 def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
-                live_mode=False, source_note=None) -> str:
+                live_mode=False, whale_mode=False, source_note=None) -> str:
     up_col, dn_col = "var(--good)", "var(--crit)"
     n_up = sum(1 for s in scores if s.above_sma200)
     n_in = sum(1 for s in scores if s.signal == "ROTATE IN")
@@ -222,6 +251,7 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
           {_ret_cell(s.rs_3m)}
           <td>{_trend_chip(s.uptrend)}</td>
           <td>{_live_chip(s.live_chg) if live_mode else _flow_chip(s.flow_bull, use_flow)}</td>
+          {f'<td>{_whale_chip(s.whale_score, s.whale_net_prem, (s.whale_label or "") + (f" · 5d flow {s.whale_flow_5d:+,.0f} sh" if s.whale_flow_5d is not None else ""))}</td>' if whale_mode else ""}
           <td><div class="scorebar"><div class="track"><div class="fill" style="width:{score_pct:.0f}%"></div></div>
               <span class="tnum">{s.score:.0f}</span></div></td>
           <td class="l">{_signal_badge(s.signal)}</td>
@@ -292,7 +322,7 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
       <thead><tr>
         <th>#</th><th class="l">Sector</th><th class="l">30d</th>
         <th>1M</th><th>3M</th><th>6M</th><th>RS</th>
-        <th>Trend</th><th>{"Live" if live_mode else "Flow"}</th><th>Score</th><th class="l">Signal</th>
+        <th>Trend</th><th>{"Live" if live_mode else "Flow"}</th>{"<th>Whale</th>" if whale_mode else ""}<th>Score</th><th class="l">Signal</th>
       </tr></thead>
       <tbody>{"".join(rows)}</tbody>
     </table>

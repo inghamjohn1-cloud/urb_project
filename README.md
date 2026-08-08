@@ -146,10 +146,12 @@ environment's egress proxy blocks direct API calls), using one of:
 - **`render_from_massive.py`** *(primary)* — builds the dashboard from **Massive**
   data: adjusted daily OHLC (`/v2/aggs`) for momentum/RS/trend/ATR, plus the live
   snapshot (`/v3/snapshot`) for a real-time **Live** column (today's % change).
-  Massive is deeper and more live than close-only history.
+  Massive is deeper and more live than close-only history. It also layers in the
+  **whale conviction** signal (see below) when `data/_whale.json` is present.
 
   ```bash
-  # data/SPY.csv … data/XLC.csv (daily aggs) + data/_snapshot.csv, then:
+  # data/SPY.csv … data/XLC.csv (daily aggs) + data/_snapshot.csv
+  # + data/_whale.json (Unusual Whales sector data), then:
   python render_from_massive.py --data-dir data --out dashboard.html
   ```
 
@@ -160,6 +162,26 @@ environment's egress proxy blocks direct API calls), using one of:
 Both reuse `rotation.py` and `dashboard.py`, so the signals match the scanner.
 The [automated morning Routine](#automated-morning-routine) uses the Massive path.
 
+### Whale conviction layer
+
+`whale.py` turns the Unusual Whales `get_market_sector_etfs` call (one call, all
+12 sectors) into a per-sector **conviction score** in [-1, +1], from:
+
+- **Options flow** — net options premium (`bullish_premium − bearish_premium`)
+- **Accumulation** — 5-day net in/out share flow (institutional accumulation vs distribution)
+- **Options bias** — call vs put premium
+
+The dashboard shows it as a **Whale** column (conviction arrow + net premium,
+hover for the breakdown), and `rank_sectors(whale_weight=…)` folds it into the
+score (default ±12 points) so bullish flow + accumulation lifts a momentum pick
+and distribution vetoes it. Save the call's JSON to `data/_whale.json`; pass
+`--no-whale` to disable.
+
+Note on scope: per-print dark-pool tape and rule-based flow alerts are dominated
+by SPY/QQQ/bonds market-wide and are sparse for the sector ETFs themselves, so
+the accumulation read uses each sector ETF's net in/out share flow rather than
+individual prints.
+
 ## Automated morning Routine
 
 A scheduled Routine regenerates the dashboard **every trading weekday at
@@ -168,8 +190,10 @@ A scheduled Routine regenerates the dashboard **every trading weekday at
 1. checks out this branch,
 2. pulls adjusted daily OHLC (`/v2/aggs`) and the live snapshot (`/v3/snapshot`)
    for SPY and the 11 sector ETFs via the **Massive** MCP connector (no API token),
-3. renders the dashboard with `render_from_massive.py`, and
-4. sends you the HTML plus a one-line summary (regime + rotate-in / rotate-out).
+3. pulls sector options flow + accumulation via the **Unusual Whales**
+   `get_market_sector_etfs` call (the whale conviction layer),
+4. renders the dashboard with `render_from_massive.py`, and
+5. sends you the HTML plus a one-line summary (regime + rotate-in / rotate-out).
 
 **Why it binds to a session instead of spawning a fresh one:** market data here
 is only reachable through an **MCP connector** (the environment's egress proxy
@@ -195,7 +219,8 @@ updated.
 | `scan.py`     | Live scanner CLI — fetch, score, report, CSV export |
 | `backtest.py` | Historical backtester — replays the signals, metrics vs SPY |
 | `dashboard.py`| Daily HTML dashboard — regime KPIs, ranking, swing levels |
-| `render_from_massive.py`| Renders the dashboard from Massive aggs + live snapshot (Routine default) |
+| `render_from_massive.py`| Renders the dashboard from Massive aggs + live snapshot + whale layer (Routine default) |
+| `whale.py`    | Smart-money conviction from Unusual Whales sector data (flow + accumulation) |
 | `render_from_mcp.py`| Alternative renderer — dashboard from Unusual Whales MCP files (flow column) |
 | `collect_mcp_data.py`| Gathers Unusual Whales MCP tool-result files into a data dir |
 | `rotation.py` | Indicators (returns, SMA, ATR) and the scoring/ranking logic |
@@ -225,8 +250,8 @@ Built on the same Unusual Whales / market-data stack:
 - ~~**Daily swing dashboard**~~ — ✅ done (`dashboard.py`).
 - ~~**Backtester**~~ — ✅ done (`backtest.py`).
 - **TradingView Pine Script** — the same ranking as a chart indicator/strategy with alerts.
-- **Smart-money layer** — dark-pool prints + congress/insider buys as a conviction filter.
-- ~~**Automated Routine**~~ — ✅ done (weekday 8 AM ET, pushes the dashboard).
+- ~~**Smart-money layer**~~ — ✅ done (`whale.py`: options flow + accumulation conviction, folded into the score).
+- ~~**Automated Routine**~~ — ✅ done (weekday 6 AM PT, pushes the dashboard).
 
 ## Disclaimer
 

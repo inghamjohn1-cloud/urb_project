@@ -97,6 +97,10 @@ class SectorScore:
     net_call_premium: float | None = None
     live_price: float | None = None  # real-time price (Massive snapshot)
     live_chg: float | None = None    # today's % change (Massive snapshot)
+    whale_score: float | None = None # smart-money conviction [-1, +1]
+    whale_net_prem: float | None = None  # net options premium (bull - bear)
+    whale_flow_5d: float | None = None   # 5-day net in/out share flow
+    whale_label: str | None = None
     score: float = 0.0
     rank: int = 0
     signal: str = ""
@@ -155,8 +159,13 @@ def _rank_percentile(values: list[float | None]) -> list[float]:
 
 
 def rank_sectors(scores: list[SectorScore], top_n: int = 3, bottom_n: int = 3,
-                 risk_off: bool = False) -> list[SectorScore]:
-    """Compute composite scores, rank, and assign rotation signals in place."""
+                 risk_off: bool = False, whale_weight: float = 0.0) -> list[SectorScore]:
+    """Compute composite scores, rank, and assign rotation signals in place.
+
+    whale_weight: points (per unit of conviction in [-1,1]) added from the
+    smart-money layer, so bullish flow/accumulation lifts a sector and
+    distribution/bearish flow drags it down. 0 disables the whale layer.
+    """
     mom_pct = _rank_percentile([s.momentum for s in scores])
     rs_pct = _rank_percentile([s.rs_3m for s in scores])
 
@@ -171,7 +180,10 @@ def rank_sectors(scores: list[SectorScore], top_n: int = 3, bottom_n: int = 3,
         # in risk-off regimes nudge defensives up, offensives down
         if risk_off and s.ticker in DEFENSIVE:
             base += 8
-        s.score = round(base, 1)
+        # smart-money conviction confirms or vetoes the momentum pick
+        if whale_weight and s.whale_score is not None:
+            base += whale_weight * s.whale_score
+        s.score = round(max(0.0, min(100.0, base)), 1)
 
     scores.sort(key=lambda s: s.score, reverse=True)
     for i, s in enumerate(scores, 1):

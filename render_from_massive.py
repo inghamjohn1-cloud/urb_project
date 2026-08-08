@@ -34,8 +34,9 @@ from rotation import (
     build_score, rank_sectors, market_regime,
 )
 from dashboard import render_html, sparkline
+import whale as whale_mod
 
-SOURCE_NOTE = "Prices and live quotes from Massive; daily OHLC is split-adjusted."
+SOURCE_NOTE = "Prices/live quotes from Massive; whale layer (options flow + accumulation) from Unusual Whales."
 
 
 # --------------------------------------------------------------------------
@@ -153,6 +154,11 @@ def main(argv=None) -> int:
     ap.add_argument("--top", type=int, default=3)
     ap.add_argument("--bottom", type=int, default=3)
     ap.add_argument("--no-live", action="store_true", help="skip the live snapshot column")
+    ap.add_argument("--whale-file", default=None,
+                    help="get_market_sector_etfs JSON for the whale layer (default data/_whale.json)")
+    ap.add_argument("--whale-weight", type=float, default=12.0,
+                    help="max points the conviction layer adds/removes from a sector's score")
+    ap.add_argument("--no-whale", action="store_true", help="skip the whale conviction layer")
     args = ap.parse_args(argv)
 
     bench_path = _find(args.data_dir, BENCHMARK)
@@ -196,15 +202,31 @@ def main(argv=None) -> int:
         print("error: no sector data could be rendered", file=sys.stderr)
         return 1
 
-    rank_sectors(scores, top_n=args.top, bottom_n=args.bottom, risk_off=risk_off)
+    # whale / smart-money conviction layer (optional)
+    use_whale = False
+    if not args.no_whale:
+        wpath = args.whale_file or _find(args.data_dir, "_whale") or os.path.join(args.data_dir, "_whale.json")
+        if os.path.exists(wpath):
+            try:
+                with open(wpath) as fh:
+                    payload = json.load(fh)
+                wmap = whale_mod.parse_sector_etfs(payload)
+                use_whale = whale_mod.attach(scores, wmap) > 0
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"  warn: whale layer unavailable ({e})", file=sys.stderr)
+
+    rank_sectors(scores, top_n=args.top, bottom_n=args.bottom, risk_off=risk_off,
+                 whale_weight=args.whale_weight if use_whale else 0.0)
 
     generated = _dt.datetime.now().strftime("%a %d %b %Y, %H:%M")
+    note = SOURCE_NOTE if use_whale else "Prices and live quotes from Massive; daily OHLC is split-adjusted."
     doc = render_html(scores, regime, detail, use_flow=False,
                       spark_by_ticker=spark_by_ticker, generated=generated,
-                      live_mode=use_live, source_note=SOURCE_NOTE)
+                      live_mode=use_live, whale_mode=use_whale, source_note=note)
     with open(args.out, "w") as fh:
         fh.write(doc)
-    print(f"  wrote {args.out}  ({len(scores)} sectors, regime {regime}, live={'on' if use_live else 'off'})")
+    print(f"  wrote {args.out}  ({len(scores)} sectors, regime {regime}, "
+          f"live={'on' if use_live else 'off'}, whale={'on' if use_whale else 'off'})")
 
     rotate_in = [s.ticker for s in scores if s.signal == "ROTATE IN"]
     rotate_out = [s.ticker for s in scores if s.signal == "ROTATE OUT"]
