@@ -190,7 +190,16 @@ def _flow_chip(flow, use_flow) -> str:
             else '<span class="chip dn">▼ bear</span>')
 
 
-def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated) -> str:
+def _live_chip(chg) -> str:
+    if chg is None:
+        return '<span class="chip na">–</span>'
+    cls = "up" if chg > 0 else ("dn" if chg < 0 else "na")
+    arrow = "▲" if chg > 0 else ("▼" if chg < 0 else "·")
+    return f'<span class="chip {cls}">{arrow} {chg:+.1f}%</span>'
+
+
+def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
+                live_mode=False, source_note=None) -> str:
     up_col, dn_col = "var(--good)", "var(--crit)"
     n_up = sum(1 for s in scores if s.above_sma200)
     n_in = sum(1 for s in scores if s.signal == "ROTATE IN")
@@ -212,7 +221,7 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated) ->
           {_ret_cell(s.ret_1m)}{_ret_cell(s.ret_3m)}{_ret_cell(s.ret_6m)}
           {_ret_cell(s.rs_3m)}
           <td>{_trend_chip(s.uptrend)}</td>
-          <td>{_flow_chip(s.flow_bull, use_flow)}</td>
+          <td>{_live_chip(s.live_chg) if live_mode else _flow_chip(s.flow_bull, use_flow)}</td>
           <td><div class="scorebar"><div class="track"><div class="fill" style="width:{score_pct:.0f}%"></div></div>
               <span class="tnum">{s.score:.0f}</span></div></td>
           <td class="l">{_signal_badge(s.signal)}</td>
@@ -283,7 +292,7 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated) ->
       <thead><tr>
         <th>#</th><th class="l">Sector</th><th class="l">30d</th>
         <th>1M</th><th>3M</th><th>6M</th><th>RS</th>
-        <th>Trend</th><th>Flow</th><th>Score</th><th class="l">Signal</th>
+        <th>Trend</th><th>{"Live" if live_mode else "Flow"}</th><th>Score</th><th class="l">Signal</th>
       </tr></thead>
       <tbody>{"".join(rows)}</tbody>
     </table>
@@ -296,8 +305,8 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated) ->
   </div>
 
   <footer>
-    Signals are mechanical: momentum + relative strength vs SPY, gated on the 50/200-day trend,
-    {"confirmed with Unusual Whales options flow" if use_flow else "price-only (flow overlay off)"}.
+    Signals are mechanical: momentum + relative strength vs SPY, gated on the 50/200-day trend.
+    {html.escape(source_note) if source_note else ("Confirmed with Unusual Whales options flow." if use_flow else "Price-only (flow overlay off).")}
     Sparklines show ~30 trading days of price. <strong>Not investment advice</strong> —
     confirm on your own chart and manage risk.
   </footer>

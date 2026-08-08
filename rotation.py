@@ -95,6 +95,8 @@ class SectorScore:
     atr: float | None
     flow_bull: bool | None = None    # options-flow confirmation (sector tide)
     net_call_premium: float | None = None
+    live_price: float | None = None  # real-time price (Massive snapshot)
+    live_chg: float | None = None    # today's % change (Massive snapshot)
     score: float = 0.0
     rank: int = 0
     signal: str = ""

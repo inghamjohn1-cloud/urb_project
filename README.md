@@ -137,47 +137,56 @@ The page is a single HTML file with everything inlined (no external assets),
 respects your system light/dark preference, has a manual theme toggle, and
 collapses to a phone layout.
 
-### Token-free rendering (for automation)
+### Rendering from connector data (for automation)
 
-`dashboard.py` calls the REST API and needs `UW_TOKEN`. For scheduled runs where
-no token is configured, `render_from_mcp.py` builds the *same* dashboard from
-JSON files saved by the Unusual Whales **MCP** tool `get_ticker_ohlc_latest_or_date`
-(one file per ticker, daily OHLC + per-day options flow):
+`dashboard.py` calls the REST API and needs `UW_TOKEN`. For scheduled runs the
+dashboard is instead built from data pulled through an MCP connector (the
+environment's egress proxy blocks direct API calls), using one of:
 
-```bash
-# one <TICKER>.json per file in data/ (SPY + the 11 SPDR ETFs), then:
-python render_from_mcp.py --data-dir data --out dashboard.html
-```
+- **`render_from_massive.py`** *(primary)* — builds the dashboard from **Massive**
+  data: adjusted daily OHLC (`/v2/aggs`) for momentum/RS/trend/ATR, plus the live
+  snapshot (`/v3/snapshot`) for a real-time **Live** column (today's % change).
+  Massive is deeper and more live than close-only history.
 
-This is the path used by the [automated morning Routine](#automated-morning-routine).
+  ```bash
+  # data/SPY.csv … data/XLC.csv (daily aggs) + data/_snapshot.csv, then:
+  python render_from_massive.py --data-dir data --out dashboard.html
+  ```
+
+- **`render_from_mcp.py`** *(alternative)* — builds it from **Unusual Whales** MCP
+  files (`get_ticker_ohlc_latest_or_date`), which include per-day options flow
+  (bullish/bearish premium) for a **Flow** column instead of Live.
+
+Both reuse `rotation.py` and `dashboard.py`, so the signals match the scanner.
+The [automated morning Routine](#automated-morning-routine) uses the Massive path.
 
 ## Automated morning Routine
 
 A scheduled Routine regenerates the dashboard **every trading weekday at
-8:00 AM ET** and delivers it to you. Each firing:
+6:00 AM PT** and delivers it to you. Each firing:
 
 1. checks out this branch,
-2. pulls daily OHLC + options flow for SPY and the 11 sector ETFs via the
-   Unusual Whales MCP connector (no API token needed),
-3. collects the tool outputs with `collect_mcp_data.py`,
-4. renders the dashboard with `render_from_mcp.py`, and
-5. sends you the HTML plus a one-line summary (regime + rotate-in / rotate-out).
+2. pulls adjusted daily OHLC (`/v2/aggs`) and the live snapshot (`/v3/snapshot`)
+   for SPY and the 11 sector ETFs via the **Massive** MCP connector (no API token),
+3. renders the dashboard with `render_from_massive.py`, and
+4. sends you the HTML plus a one-line summary (regime + rotate-in / rotate-out).
 
 **Why it binds to a session instead of spawning a fresh one:** market data here
-is only reachable through the Unusual Whales **MCP connector** (the environment's
-egress proxy blocks direct API calls), and connector tools are only present in a
+is only reachable through an **MCP connector** (the environment's egress proxy
+blocks direct API calls), and connector tools are only present in a
 connector-holding session. So the Routine fires into this session, which holds
-the connector, and delivers the dashboard as a proactive file (phone
+the Massive connector, and delivers the dashboard as a proactive file (phone
 notification).
 
 If you'd prefer a fresh-session Routine with email + push summaries, create it
-from the **claude.ai Routines UI**, where you can attach the "Unusual Whales"
-connector to the schedule (that attachment isn't available to programmatic
-setup). Point its prompt at the same steps above.
+from the **claude.ai Routines UI**, where you can attach the "Massive" connector
+to the schedule (that attachment isn't available to programmatic setup). Point
+its prompt at the same steps above.
 
 Manage it from chat: "list my routines", "change the dashboard routine to
-7 AM", "pause the dashboard routine". The schedule is stored in UTC, so it lands
-one hour earlier (7 AM ET) during US winter (EST) unless updated.
+5 AM PT", "pause the dashboard routine". The schedule is stored in UTC (13:00),
+so it lands one hour later in clock terms (7:00 AM PT) during US winter (PST)
+unless updated.
 
 ## Files
 
@@ -186,8 +195,9 @@ one hour earlier (7 AM ET) during US winter (EST) unless updated.
 | `scan.py`     | Live scanner CLI — fetch, score, report, CSV export |
 | `backtest.py` | Historical backtester — replays the signals, metrics vs SPY |
 | `dashboard.py`| Daily HTML dashboard — regime KPIs, ranking, swing levels |
-| `render_from_mcp.py`| Token-free renderer — same dashboard from MCP JSON files |
-| `collect_mcp_data.py`| Gathers MCP tool-result files into a data dir (for the Routine) |
+| `render_from_massive.py`| Renders the dashboard from Massive aggs + live snapshot (Routine default) |
+| `render_from_mcp.py`| Alternative renderer — dashboard from Unusual Whales MCP files (flow column) |
+| `collect_mcp_data.py`| Gathers Unusual Whales MCP tool-result files into a data dir |
 | `rotation.py` | Indicators (returns, SMA, ATR) and the scoring/ranking logic |
 | `uw_client.py`| Minimal Unusual Whales REST client (auth, retries, unwrapping) |
 | `.env.example`| Template for your API token |
