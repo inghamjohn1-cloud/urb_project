@@ -138,6 +138,73 @@ def parse_snapshot(path: str) -> dict[str, dict]:
     return out
 
 
+def watchlist_card(journal_path: str) -> str:
+    """Render the whale-watchlist panel from the latest journal row per ticker."""
+    import csv as _csv
+    import html as _html
+    try:
+        rows = list(_csv.DictReader(open(journal_path)))
+    except OSError:
+        return ""
+    latest = {}
+    for r in rows:
+        if r.get("ticker") and (r["ticker"] not in latest or r["date"] >= latest[r["ticker"]]["date"]):
+            latest[r["ticker"]] = r
+    if not latest:
+        return ""
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def state_chip(state, z):
+        zs = f"{z:+.2f}" if z is not None else "–"
+        if state == "euphoria":
+            return f'<span class="chip dn">🔥 euphoria {zs}</span>'
+        if state == "capitulation":
+            return f'<span class="chip up">🟢 capitulation {zs}</span>'
+        return f'<span class="chip na">· normal {zs}</span>'
+
+    def gex_chip(g):
+        if g is None:
+            return '<span class="chip na">–</span>'
+        return (f'<span class="chip dn">▼ NEG {g/1e6:.2f}M</span>' if g < 0
+                else f'<span class="chip up">▲ +{g/1e6:.2f}M</span>')
+
+    def pct(v):
+        return f'<td class="tnum {"pos" if v > 0 else ("neg" if v < 0 else "")}">{v*100:+.1f}%</td>' if v is not None else '<td class="tnum">–</td>'
+
+    body = []
+    ordered = sorted(latest.values(), key=lambda r: -(num(r.get("flow_z")) or 0))
+    for r in ordered:
+        dp = num(r.get("dp_premium"))
+        dp_cell = f'${dp/1e6:.0f}M / {r.get("dp_prints")}' if dp else "–"
+        body.append(f"""
+        <tr>
+          <td class="l"><span class="tk">{_html.escape(r['ticker'])}</span></td>
+          <td class="tnum">{num(r.get('close')):.2f}</td>
+          {pct(num(r.get('ret_21d')))}{pct(num(r.get('ret_63d')))}
+          <td>{state_chip(r.get('flow_state'), num(r.get('flow_z')))}</td>
+          <td>{gex_chip(num(r.get('gex_net_gamma')))}</td>
+          <td class="tnum">{dp_cell}</td>
+        </tr>""")
+    asof = max(r["date"] for r in latest.values())
+    return f"""
+  <div class="card">
+    <h2>Whale watchlist — forward test (as of {_html.escape(asof)})</h2>
+    <div class="scroll"><table>
+      <thead><tr><th class="l">Ticker</th><th>Close</th><th>21d</th><th>63d</th>
+        <th class="l">Options flow</th><th class="l">Dealer gamma</th><th>Dark pool</th></tr></thead>
+      <tbody>{"".join(body)}</tbody>
+    </table></div>
+    <div class="empty">🟢 capitulation = your buy-watch condition · 🔥 euphoria = not a buy day ·
+    NEG gamma = dealers amplify moves. Signals under forward test — not proven, not advice.</div>
+  </div>
+"""
+
+
 def _find(data_dir: str, ticker: str) -> str | None:
     for ext in ("csv", "json"):
         for name in (f"{ticker}.{ext}", f"{ticker.upper()}.{ext}", f"{ticker.lower()}.{ext}"):
@@ -159,6 +226,8 @@ def main(argv=None) -> int:
     ap.add_argument("--whale-weight", type=float, default=12.0,
                     help="max points the conviction layer adds/removes from a sector's score")
     ap.add_argument("--no-whale", action="store_true", help="skip the whale conviction layer")
+    ap.add_argument("--journal", default="logs/whale_journal.csv",
+                    help="whale journal CSV for the watchlist panel ('' to skip)")
     args = ap.parse_args(argv)
 
     bench_path = _find(args.data_dir, BENCHMARK)
@@ -223,6 +292,10 @@ def main(argv=None) -> int:
     doc = render_html(scores, regime, detail, use_flow=False,
                       spark_by_ticker=spark_by_ticker, generated=generated,
                       live_mode=use_live, whale_mode=use_whale, source_note=note)
+    if args.journal:
+        card = watchlist_card(args.journal)
+        if card:
+            doc = doc.replace("<footer>", card + "\n  <footer>", 1)
     with open(args.out, "w") as fh:
         fh.write(doc)
     print(f"  wrote {args.out}  ({len(scores)} sectors, regime {regime}, "
