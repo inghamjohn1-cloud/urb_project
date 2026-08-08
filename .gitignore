@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+*.csv
+!logs/whale_journal.csv
+data/
+dashboard.html
+artifact_dashboard.html
+darkpool.html

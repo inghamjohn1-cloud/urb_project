@@ -1,0 +1,235 @@
+//@version=6
+// =============================================================================
+// Sector Rotation Swing — ranking, signals, and ATR swing levels on-chart
+// -----------------------------------------------------------------------------
+// Ranks the 11 SPDR sector ETFs by blended momentum + relative strength vs SPY,
+// gated on the 50/200-day trend — the same logic as the Python scanner. Shows a
+// ranked table, marks the chart symbol's signal, plots ATR-based entry/stop/
+// target for rotate-in names, and fires alerts on rotation changes.
+//
+// NOTE: TradingView/Pine cannot access Unusual Whales options flow or Massive
+// dark-pool data, so the on-chart score is price/momentum/trend only. To fold in
+// the whale conviction from the dashboard, type each sector's conviction (-1..+1)
+// into the "Whale conviction" inputs below; leave them 0 to ignore.
+//
+// Add to any chart (works best on a daily chart of SPY or a sector ETF).
+// =============================================================================
+
+indicator("Sector Rotation Swing", overlay = true, max_lines_count = 20, max_labels_count = 20)
+
+// ---- Inputs -----------------------------------------------------------------
+grpR = "Ranking"
+lb1   = input.int(21,  "1M lookback (bars)", group = grpR, minval = 2)
+lb3   = input.int(63,  "3M lookback (bars)", group = grpR, minval = 2)
+lb6   = input.int(126, "6M lookback (bars)", group = grpR, minval = 2)
+smaF  = input.int(50,  "Fast SMA",           group = grpR, minval = 2)
+smaS  = input.int(200, "Slow SMA",           group = grpR, minval = 2)
+atrL  = input.int(14,  "ATR length",         group = grpR, minval = 2)
+topN  = input.int(3,   "Rotate-in count",    group = grpR, minval = 1, maxval = 6)
+botN  = input.int(3,   "Rotate-out count",   group = grpR, minval = 1, maxval = 6)
+wMom  = input.float(0.6, "Momentum weight",  group = grpR, minval = 0, maxval = 1, step = 0.05)
+
+grpW = "Whale conviction (-1..+1, from the dashboard; 0 = ignore)"
+wWeight = input.float(0, "Whale weight (points)", group = grpW, minval = 0, maxval = 40, step = 1)
+wXLK = input.float(0, "XLK", group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLF = input.float(0, "XLF", group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLE = input.float(0, "XLE", group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLV = input.float(0, "XLV", group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLI = input.float(0, "XLI", group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLY = input.float(0, "XLY", group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLP = input.float(0, "XLP", group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLU = input.float(0, "XLU", group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLB = input.float(0, "XLB", group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLRE= input.float(0, "XLRE",group = grpW, minval = -1, maxval = 1, step = 0.05)
+wXLC = input.float(0, "XLC", group = grpW, minval = -1, maxval = 1, step = 0.05)
+
+grpD = "Display"
+showTable = input.bool(true, "Show ranking table", group = grpD)
+showLevels= input.bool(true, "Plot swing levels for chart symbol", group = grpD)
+
+// ---- Per-symbol metric bundle (evaluated in each symbol's context) ----------
+f_metrics() =>
+    c   = close
+    r1  = (c - c[lb1]) / c[lb1] * 100.0
+    r3  = (c - c[lb3]) / c[lb3] * 100.0
+    r6  = (c - c[lb6]) / c[lb6] * 100.0
+    s50 = ta.sma(c, smaF)
+    s200= ta.sma(c, smaS)
+    a   = ta.atr(atrL)
+    [c, r1, r3, r6, s50, s200, a]
+
+f_req(sym) =>
+    request.security(sym, "D", f_metrics(), lookahead = barmerge.lookahead_off)
+
+// Benchmark (SPY) 3-month return for relative strength
+[bc, br1, br3, br6, bs50, bs200, batr] = f_req("AMEX:SPY")
+
+// Sector ETFs
+[c1,  r11, r31, r61, f1,  s1,  a1 ] = f_req("AMEX:XLK")
+[c2,  r12, r32, r62, f2,  s2,  a2 ] = f_req("AMEX:XLF")
+[c3,  r13, r33, r63, f3,  s3,  a3 ] = f_req("AMEX:XLE")
+[c4,  r14, r34, r64, f4,  s4,  a4 ] = f_req("AMEX:XLV")
+[c5,  r15, r35, r65, f5,  s5,  a5 ] = f_req("AMEX:XLI")
+[c6,  r16, r36, r66, f6,  s6,  a6 ] = f_req("AMEX:XLY")
+[c7,  r17, r37, r67, f7,  s7,  a7 ] = f_req("AMEX:XLP")
+[c8,  r18, r38, r68, f8,  s8,  a8 ] = f_req("AMEX:XLU")
+[c9,  r19, r39, r69, f9,  s9,  a9 ] = f_req("AMEX:XLB")
+[c10, r110,r310,r610,f10, s10, a10] = f_req("AMEX:XLRE")
+[c11, r111,r311,r611,f11, s11, a11] = f_req("AMEX:XLC")
+
+// ---- Assemble arrays --------------------------------------------------------
+var string[] tks = array.from("XLK","XLF","XLE","XLV","XLI","XLY","XLP","XLU","XLB","XLRE","XLC")
+
+f_mom(r1v, r3v, r6v) =>
+    wr = wMom
+    wother = (1.0 - wMom) / 2.0
+    r1v * wr * 0.5 + r3v * (wr * 0.5 + wother) + r6v * wother  // momentum blend
+
+// build per-bar arrays
+closes = array.from(c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11)
+r3s    = array.from(r31,r32,r33,r34,r35,r36,r37,r38,r39,r310,r311)
+r1s    = array.from(r11,r12,r13,r14,r15,r16,r17,r18,r19,r110,r111)
+r6s    = array.from(r61,r62,r63,r64,r65,r66,r67,r68,r69,r610,r611)
+f50s   = array.from(f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11)
+s200s  = array.from(s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11)
+atrs   = array.from(a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11)
+whales = array.from(wXLK,wXLF,wXLE,wXLV,wXLI,wXLY,wXLP,wXLU,wXLB,wXLRE,wXLC)
+
+n = array.size(tks)
+
+// momentum + relative strength per sector
+var float[] moms = array.new_float(n, 0.0)
+var float[] rss  = array.new_float(n, 0.0)
+for i = 0 to n - 1
+    m = f_mom(array.get(r1s,i), array.get(r3s,i), array.get(r6s,i))
+    array.set(moms, i, m)
+    array.set(rss,  i, array.get(r3s,i) - br3)
+
+f_pctrank(arr, val) =>
+    cnt = 0
+    for i = 0 to array.size(arr) - 1
+        if array.get(arr, i) < val
+            cnt += 1
+    array.size(arr) > 1 ? cnt / (array.size(arr) - 1) * 100.0 : 100.0
+
+// composite score with trend gate + optional whale conviction
+var float[] scores = array.new_float(n, 0.0)
+for i = 0 to n - 1
+    momPct = f_pctrank(moms, array.get(moms, i))
+    rsPct  = f_pctrank(rss,  array.get(rss,  i))
+    c_i    = array.get(closes, i)
+    s50_i  = array.get(f50s,  i)
+    s200_i = array.get(s200s, i)
+    up     = c_i > s50_i and s50_i > s200_i
+    base   = 0.6 * momPct + 0.4 * rsPct
+    base   := up ? base : base * 0.5
+    base   := c_i < s200_i ? base * 0.6 : base
+    base   += wWeight * array.get(whales, i)
+    array.set(scores, i, base)
+
+// rank: build descending order of indices
+var int[] order = array.new_int(0)
+array.clear(order)
+var bool[] used = array.new_bool(n, false)
+for k = 0 to n - 1
+    array.set(used, k, false)
+for r = 0 to n - 1
+    best = -1
+    bestv = -1e18
+    for i = 0 to n - 1
+        if not array.get(used, i) and array.get(scores, i) > bestv
+            bestv := array.get(scores, i)
+            best := i
+    array.set(used, best, true)
+    array.push(order, best)
+
+// signal for a given ranked position
+f_signal(idx, rankpos) =>
+    c_i    = array.get(closes, idx)
+    s50_i  = array.get(f50s,  idx)
+    s200_i = array.get(s200s, idx)
+    mom_i  = array.get(moms,  idx)
+    healthy = c_i >= s50_i or c_i >= s200_i
+    sig = "HOLD"
+    if rankpos < topN and healthy and mom_i > 0
+        sig := "ROTATE IN"
+    else if rankpos >= n - botN or c_i < s200_i
+        sig := "ROTATE OUT"
+    sig
+
+// ---- Table ------------------------------------------------------------------
+var table t = table.new(position.top_right, 6, n + 2, border_width = 1)
+if showTable and barstate.islast
+    table.clear(t, 0, 0, 5, n + 1)
+    table.cell(t, 0, 0, "Sector Rotation", text_color = color.white, bgcolor = color.new(color.blue, 0), text_size = size.small)
+    table.cell(t, 1, 0, "", bgcolor = color.new(color.blue, 0))
+    table.cell(t, 2, 0, "", bgcolor = color.new(color.blue, 0))
+    table.cell(t, 3, 0, "", bgcolor = color.new(color.blue, 0))
+    table.cell(t, 4, 0, "", bgcolor = color.new(color.blue, 0))
+    table.cell(t, 5, 0, "", bgcolor = color.new(color.blue, 0))
+    hdrbg = color.new(color.gray, 70)
+    table.cell(t, 0, 1, "#",     text_color = color.white, bgcolor = hdrbg, text_size = size.tiny)
+    table.cell(t, 1, 1, "ETF",   text_color = color.white, bgcolor = hdrbg, text_size = size.tiny)
+    table.cell(t, 2, 1, "3M %",  text_color = color.white, bgcolor = hdrbg, text_size = size.tiny)
+    table.cell(t, 3, 1, "RS %",  text_color = color.white, bgcolor = hdrbg, text_size = size.tiny)
+    table.cell(t, 4, 1, "Score", text_color = color.white, bgcolor = hdrbg, text_size = size.tiny)
+    table.cell(t, 5, 1, "Signal",text_color = color.white, bgcolor = hdrbg, text_size = size.tiny)
+    for rpos = 0 to n - 1
+        idx = array.get(order, rpos)
+        sig = f_signal(idx, rpos)
+        sigcol = sig == "ROTATE IN" ? color.new(color.green, 0) : sig == "ROTATE OUT" ? color.new(color.red, 0) : color.new(color.gray, 40)
+        row = rpos + 2
+        table.cell(t, 0, row, str.tostring(rpos + 1),                    text_color = color.white, text_size = size.tiny)
+        table.cell(t, 1, row, array.get(tks, idx),                       text_color = color.white, text_size = size.tiny)
+        table.cell(t, 2, row, str.tostring(array.get(r3s, idx), "#.0"),  text_color = color.white, text_size = size.tiny)
+        table.cell(t, 3, row, str.tostring(array.get(rss, idx), "#.0"),  text_color = color.white, text_size = size.tiny)
+        table.cell(t, 4, row, str.tostring(array.get(scores, idx), "#"), text_color = color.white, text_size = size.tiny)
+        table.cell(t, 5, row, sig, text_color = color.white, bgcolor = sigcol, text_size = size.tiny)
+
+// ---- Chart-symbol signal + LOCKED ATR swing levels --------------------------
+// Levels are captured on the bar the signal first turns ROTATE IN and held
+// fixed until the signal ends — so they do NOT drift with price.
+curTk = syminfo.ticker
+curIdx = array.indexof(tks, curTk)
+
+var bool   inPos     = false
+var float  lockEntry = na
+var float  lockStop  = na
+var float  lockTgt   = na
+var int    lockBar   = na
+var line   entL = na
+var line   stpL = na
+var line   tgtL = na
+var label  lbl  = na
+var string prevSig = ""
+
+if curIdx >= 0
+    rankpos = array.indexof(order, curIdx)
+    sig     = f_signal(curIdx, rankpos)
+    atr_i   = array.get(atrs, curIdx)
+
+    // enter/exit decisions on closed bars only (no intraday flicker)
+    if barstate.isconfirmed
+        if sig == "ROTATE IN" and not inPos
+            inPos     := true
+            lockEntry := close
+            lockStop  := close - 2.0 * atr_i
+            lockTgt   := close + 3.0 * atr_i
+            lockBar   := bar_index
+        if sig != "ROTATE IN" and inPos
+            inPos := false
+        if sig != prevSig and prevSig != ""
+            alert(curTk + " rotation signal: " + sig + " (rank #" + str.tostring(rankpos + 1) + ")", alert.freq_once_per_bar)
+        prevSig := sig
+
+    // draw the fixed levels on the latest bar
+    if showLevels and barstate.islast
+        line.delete(entL)
+        line.delete(stpL)
+        line.delete(tgtL)
+        label.delete(lbl)
+        if inPos
+            entL := line.new(lockBar, lockEntry, bar_index + 10, lockEntry, color = color.blue,  width = 2)
+            stpL := line.new(lockBar, lockStop,  bar_index + 10, lockStop,  color = color.red,   width = 1, style = line.style_dashed)
+            tgtL := line.new(lockBar, lockTgt,   bar_index + 10, lockTgt,   color = color.green, width = 1, style = line.style_dashed)
+            lbl  := label.new(bar_index, lockTgt, text = curTk + " " + sig + "\nE " + str.tostring(lockEntry, "#.##") + "  S " + str.tostring(lockStop, "#.##") + "  T " + str.tostring(lockTgt, "#.##"), style = label.style_label_left, color = color.new(color.blue, 20), textcolor = color.white, size = size.small)
