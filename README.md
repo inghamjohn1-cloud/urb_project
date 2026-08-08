@@ -6,9 +6,10 @@ SPY, gates on trend, optionally confirms with **Unusual Whales** options-flow
 (sector tide), and tells you what to **rotate into**, **hold**, and **rotate out
 of** — with ATR-based entry/stop/target levels for the leaders.
 
-This is the first piece of a larger toolkit. See [Roadmap](#roadmap) for what
-else can be built on the same data stack (daily dashboard, backtester,
-TradingView Pine Script, automated alerts).
+It ships with a **backtester** (`backtest.py`) that replays the exact same
+signals over years of history so you can validate the rules before trading
+them. See [Backtesting](#backtesting) and the [Roadmap](#roadmap) for what
+else can be built on the same data stack.
 
 ## What it does
 
@@ -63,14 +64,66 @@ python scan.py --timeframe 2Y   # use a longer history window
     XLK   entry 167.95   stop 158.01   target 182.84   ATR 4.97  [outperforming SPY, bullish flow]
 ```
 
+## Backtesting
+
+`backtest.py` replays the scanner's **exact** signals over historical data —
+on each rebalance date it ranks the sectors *as of that date* (no lookahead),
+buys the `ROTATE IN` names equal-weight, holds to the next rebalance, and parks
+unfilled slots in cash (so the trend filter de-risks you in downturns). It then
+reports the results against a SPY buy-and-hold benchmark.
+
+```bash
+python backtest.py                          # 5y history, weekly rebalance, top 3
+python backtest.py --rebalance monthly      # monthly instead of weekly
+python backtest.py --top 4 --cost-bps 5     # top 4 sectors, 5bps per-side cost
+python backtest.py --timeframe 8Y --csv equity.csv --trades-csv trades.csv
+```
+
+Options: `--top`, `--bottom`, `--rebalance` (`weekly`/`biweekly`/`monthly` or a
+number of trading days), `--capital`, `--cost-bps`, `--timeframe`, `--csv`
+(equity curves), `--trades-csv` (per-rebalance holdings log).
+
+### Example output
+
+```
+==============================================================================
+  SECTOR ROTATION BACKTEST
+==============================================================================
+  window   : 2020-06-01 -> 2025-08-07  (5.2y)
+  rules    : top 3 sectors, rebalance weekly, 2bps/side, $100,000 start
+  activity : 270 rebalances, 74% avg exposure, 61% winning periods
+------------------------------------------------------------------------------
+  metric                      STRATEGY    SPY BUY & HOLD          edge
+------------------------------------------------------------------------------
+  Total return                +XXX.XX%          +XX.XX%       +XX.XX%
+  CAGR                         +XX.XX%           +XX.XX%       +XX.XX%
+  Max drawdown                 -XX.XX%           -XX.XX%       +XX.XX%
+  Sharpe                          X.XX              X.XX         +X.XX
+  ...
+------------------------------------------------------------------------------
+  $100,000 -> $XXX,XXX (strategy) vs $XXX,XXX (SPY)
+```
+
+**Reported metrics:** total return, CAGR, max drawdown, annual volatility,
+Sharpe, Sortino, Calmar, win rate, and average exposure — each shown against
+SPY buy-and-hold with the edge in the final column.
+
+The backtester runs on price/momentum/trend only; the live options-flow overlay
+(sector tide) is a real-time signal and is intentionally not modelled in
+historical replay.
+
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `scan.py`     | CLI entry point — fetch, score, report, CSV export |
+| `scan.py`     | Live scanner CLI — fetch, score, report, CSV export |
+| `backtest.py` | Historical backtester — replays the signals, metrics vs SPY |
 | `rotation.py` | Indicators (returns, SMA, ATR) and the scoring/ranking logic |
 | `uw_client.py`| Minimal Unusual Whales REST client (auth, retries, unwrapping) |
 | `.env.example`| Template for your API token |
+
+The scanner and backtester share `rotation.py`, so what you backtest is exactly
+what the scanner signals live.
 
 ## How the score works
 
@@ -90,7 +143,7 @@ in `rotation.py` (`MOM_WEIGHTS`, `LB_1M/3M/6M`, `SMA_FAST/SLOW`).
 Built on the same Unusual Whales / market-data stack:
 
 - **Daily swing dashboard** — HTML report of leaders + flow + dark-pool + entry levels.
-- **Backtester** — validate the rotation rules on historical data (CAGR, drawdown, Sharpe).
+- ~~**Backtester**~~ — ✅ done (`backtest.py`).
 - **TradingView Pine Script** — the same ranking as a chart indicator/strategy with alerts.
 - **Smart-money layer** — dark-pool prints + congress/insider buys as a conviction filter.
 - **Automated Routine** — run pre-market each trading day and push the results.
