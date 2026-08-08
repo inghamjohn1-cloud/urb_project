@@ -192,6 +192,7 @@ curIdx = array.indexof(tks, curTk)
 var line entL = na
 var line stpL = na
 var line tgtL = na
+var label lbl = na
 if showLevels and barstate.islast and curIdx >= 0
     // rank position of the chart symbol
     rankpos = array.indexof(order, curIdx)
@@ -207,9 +208,9 @@ if showLevels and barstate.islast and curIdx >= 0
         entL := line.new(bar_index - 1, entry, bar_index + 20, entry, color = color.blue,  width = 2)
         stpL := line.new(bar_index - 1, stop,  bar_index + 20, stop,  color = color.red,   width = 1, style = line.style_dashed)
         tgtL := line.new(bar_index - 1, tgt,   bar_index + 20, tgt,   color = color.green, width = 1, style = line.style_dashed)
-    label.delete(label.all)
+    label.delete(lbl)
     lblcol = sig == "ROTATE IN" ? color.green : sig == "ROTATE OUT" ? color.red : color.gray
-    label.new(bar_index, high, text = curTk + "  #" + str.tostring(rankpos + 1) + "\n" + sig,
+    lbl := label.new(bar_index, high, text = curTk + "  #" + str.tostring(rankpos + 1) + "\n" + sig,
               style = label.style_label_down, color = lblcol, textcolor = color.white, size = size.small)
 
 // ---- Alerts (fire when the chart symbol's signal changes) -------------------
