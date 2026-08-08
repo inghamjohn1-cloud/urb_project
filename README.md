@@ -182,6 +182,43 @@ by SPY/QQQ/bonds market-wide and are sparse for the sector ETFs themselves, so
 the accumulation read uses each sector ETF's net in/out share flow rather than
 individual prints.
 
+## Dark-pool block view
+
+`darkpool.py` renders a standalone report of recent off-exchange (dark pool /
+TRF) **block prints** per sector ETF, from the Unusual Whales
+`get_dark_pool_trades` call (one per ETF). For each sector it shows print count,
+total dark-pool premium, the largest block, how much of the day's volume printed
+off-exchange, and an **accumulation vs distribution** lean (premium-weighted
+price vs the NBBO midpoint) — plus a "notable blocks" list.
+
+```bash
+# one data/_dp_<TICKER>.json per ETF (raw get_dark_pool_trades output), then:
+python darkpool.py --data-dir data --out darkpool.html
+python darkpool.py --min-premium 1000000     # only blocks over $1M
+```
+
+This is a separate on-demand view (not part of the morning dashboard) because
+sector-ETF dark-pool prints are small enough to return inline rather than as
+files. Ask to have it added to a routine if you want it pushed on a schedule.
+
+## TradingView Pine Script
+
+`pine/sector_rotation.pine` is a Pine v6 indicator that replicates the ranking
+on a TradingView chart: paste it into the Pine Editor and add it to any chart
+(daily timeframe works best). It pulls all 11 sector ETFs + SPY via
+`request.security`, ranks them by blended momentum + relative strength gated on
+the 50/200-day trend, and shows:
+
+- a **ranked table** (rank, ETF, 3M %, RS %, score, signal),
+- the **chart symbol's** rank + signal label and ATR-based entry/stop/target
+  lines when it's a rotate-in name,
+- **alerts** when the chart symbol's rotation signal changes.
+
+Pine can't reach Unusual Whales or Massive, so the on-chart score is
+price/momentum/trend only. To fold in the whale conviction, type each sector's
+conviction (−1..+1, read off the dashboard) into the script's "Whale conviction"
+inputs and set a whale weight; leave them 0 to ignore.
+
 ## Automated morning Routine
 
 A scheduled Routine regenerates the dashboard **every trading weekday at
@@ -221,6 +258,8 @@ updated.
 | `dashboard.py`| Daily HTML dashboard — regime KPIs, ranking, swing levels |
 | `render_from_massive.py`| Renders the dashboard from Massive aggs + live snapshot + whale layer (Routine default) |
 | `whale.py`    | Smart-money conviction from Unusual Whales sector data (flow + accumulation) |
+| `darkpool.py` | Per-ETF dark-pool block-print view (count, premium, largest block, lean) |
+| `pine/sector_rotation.pine` | TradingView Pine v6 indicator — ranking, signals, ATR levels, alerts |
 | `render_from_mcp.py`| Alternative renderer — dashboard from Unusual Whales MCP files (flow column) |
 | `collect_mcp_data.py`| Gathers Unusual Whales MCP tool-result files into a data dir |
 | `rotation.py` | Indicators (returns, SMA, ATR) and the scoring/ranking logic |
@@ -249,7 +288,8 @@ Built on the same Unusual Whales / market-data stack:
 
 - ~~**Daily swing dashboard**~~ — ✅ done (`dashboard.py`).
 - ~~**Backtester**~~ — ✅ done (`backtest.py`).
-- **TradingView Pine Script** — the same ranking as a chart indicator/strategy with alerts.
+- ~~**TradingView Pine Script**~~ — ✅ done (`pine/sector_rotation.pine`).
+- ~~**Dark-pool block view**~~ — ✅ done (`darkpool.py`).
 - ~~**Smart-money layer**~~ — ✅ done (`whale.py`: options flow + accumulation conviction, folded into the score).
 - ~~**Automated Routine**~~ — ✅ done (weekday 6 AM PT, pushes the dashboard).
 
