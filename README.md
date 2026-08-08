@@ -244,6 +244,12 @@ from the **claude.ai Routines UI**, where you can attach the "Massive" connector
 to the schedule (that attachment isn't available to programmatic setup). Point
 its prompt at the same steps above.
 
+Each run also republishes the dashboard to a fixed **claude.ai Artifact URL**
+(via `to_artifact.py`, which strips the page down to the body-content the
+Artifact host expects), so a single bookmarked link opens the latest dashboard
+in Chrome — no download. The link:
+<https://claude.ai/code/artifact/1cc53f7d-7cb7-4e1e-953e-0110e32300d6>
+
 Manage it from chat: "list my routines", "change the dashboard routine to
 7 AM PT", "pause the dashboard routine". The schedule is stored in UTC (13:00 =
 6:00 AM PDT), so it lands one hour earlier (5:00 AM PST) during US winter unless
@@ -260,6 +266,7 @@ updated.
 | `whale.py`    | Smart-money conviction from Unusual Whales sector data (flow + accumulation) |
 | `darkpool.py` | Per-ETF dark-pool block-print view (count, premium, largest block, lean) |
 | `pine/sector_rotation.pine` | TradingView Pine v6 indicator — ranking, signals, ATR levels, alerts |
+| `to_artifact.py` | Strips a dashboard HTML to Artifact body-content for hosting on claude.ai |
 | `render_from_mcp.py`| Alternative renderer — dashboard from Unusual Whales MCP files (flow column) |
 | `collect_mcp_data.py`| Gathers Unusual Whales MCP tool-result files into a data dir |
 | `rotation.py` | Indicators (returns, SMA, ATR) and the scoring/ranking logic |
