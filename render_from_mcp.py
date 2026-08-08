@@ -147,6 +147,13 @@ def main(argv=None) -> int:
     with open(args.out, "w") as fh:
         fh.write(doc)
     print(f"  wrote {args.out}  ({len(scores)} sectors, regime {regime})")
+
+    # one-line, machine-friendly summary (handy for automation captions)
+    rotate_in = [s.ticker for s in scores if s.signal == "ROTATE IN"]
+    rotate_out = [s.ticker for s in scores if s.signal == "ROTATE OUT"]
+    print("SUMMARY: regime=" + regime
+          + " | ROTATE IN: " + (", ".join(rotate_in) or "none")
+          + " | ROTATE OUT: " + (", ".join(rotate_out) or "none"))
     return 0
 
 
