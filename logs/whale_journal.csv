@@ -1,0 +1,4 @@
+date,ticker,close,ret_21d,ret_63d,net_prem_5d,flow_z,flow_state,dp_prints,dp_premium,dp_largest,dp_at_or_above_close
+2026-08-07,NVDA,223.96,0.1044,0.0589,40194536.0,1.26,normal,,,,
+2026-08-07,PLTR,172.01,0.333,0.2551,40895602.0,3.13,euphoria,,,,
+2026-08-07,TSLA,328.58,-0.1918,-0.2021,-2938641.0,0.32,normal,,,,
