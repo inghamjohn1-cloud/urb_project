@@ -17,7 +17,8 @@ Every number below was produced by code in this repo against saved raw data.
 | 6 | VWAP-band mean reversion, in/out of market | 0/11 sectors beat buy&hold (10y) | ❌ misses trends; only works in ranges |
 | 7 | VWAP tilt around a held core (always invested) | 13.5% vs 13.7% core-only (8y) | ➖ no added edge |
 | 8 | Single-name: FOLLOW unusual bullish options flow | +0.0%/1d, +0.1%/5d edge | ❌ no follow edge |
-| 9 | **Single-name: FADE unusual bullish flow (euphoria)** | **−2.0% avg underperformance in 21d after bullish premium spikes** (4 of 6 names) | ⚠️ real but modest; contrarian signal |
+| 9 | Single-name: FADE unusual bullish flow (euphoria) | −2.0% 21d edge in tech cohort (NVDA/TSLA/AMD/AAPL/META/PLTR)… | ⚠️ see row 10 |
+| 10 | **Row 9 robustness check** — same test on a diverse cohort (JPM/XOM/UNH/WMT/CAT/DIS) | **−0.25% 21d edge — the effect disappears out-of-sample** | ❌ does not generalize; at best a hot-momentum-name/regime artifact |
 
 ## The three conclusions
 
@@ -26,11 +27,12 @@ Every number below was produced by code in this repo against saved raw data.
    market. A cap-tilted core across all 11 sectors matched SPY while never being
    concentrated — that plus a disciplined buy-low/trim-high band (row 3) is the
    validated strategy.
-2. **Whale/options flow is contrarian at the single-name level, not a follow
-   signal.** Aggregate bullish premium spikes mark crowd euphoria: stocks
-   underperformed their own baseline by ~2% over the following month (row 9).
-   The actionable use is a **trim signal on names you already hold**, not a buy
-   signal. Caveat: ~30–50 events/name, one regime (2024–26), suggestive not proof.
+2. **Whale/options flow carries no generalizable signal at the single-name
+   level, in either direction.** Following bullish spikes: no edge (row 8).
+   Fading them looked promising in the tech cohort (−2% over 21d, row 9) but
+   **failed the out-of-sample robustness check** on a sector-diverse cohort
+   (row 10). The euphoria-fade survives only as a *hypothesis about crowded,
+   retail-heavy momentum names* — untestable further with available history.
 3. **The curated institutional signals can't be backtested** — flow alerts
    (sweeps, repeated hits), dark-pool blocks, GEX have no deep history via the
    API. They can only be evaluated live/forward. Treat them as discretionary
@@ -40,10 +42,11 @@ Every number below was produced by code in this repo against saved raw data.
 
 - Hold a cap-weighted sector core (or just SPY — nearly identical).
 - Rebalance monthly with a ±band: trim what's stretched, add what's lagging.
-- On individual holdings: when price is stretched AND call premium z-spikes
-  (euphoria), that is the moment to trim — the one whale signal that tested out.
-- Use VWAP bands, flow, dark pool as discretionary timing context, knowing the
-  mechanical versions carry no edge.
+  This is the only tested approach that kept pace with SPY while diversified.
+- Use VWAP bands, flow, dark pool as discretionary timing context only —
+  every mechanical version tested (follow AND fade) carried no generalizable
+  edge. In crowded momentum names, extreme call-premium spikes *may* mark
+  euphoria tops (unproven; failed to replicate outside the tech cohort).
 
 ## Testing notes
 
