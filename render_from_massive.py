@@ -162,16 +162,16 @@ def watchlist_card(journal_path: str) -> str:
     def state_chip(state, z):
         zs = f"{z:+.2f}" if z is not None else "–"
         if state == "euphoria":
-            return f'<span class="chip dn">🔥 euphoria {zs}</span>'
+            return f'<span class="wchip wdn">🔥 EUPHORIA {zs}</span>'
         if state == "capitulation":
-            return f'<span class="chip up">🟢 capitulation {zs}</span>'
-        return f'<span class="chip na">· normal {zs}</span>'
+            return f'<span class="wchip wup">🟢 CAPITULATION {zs}</span>'
+        return f'<span class="wchip wna">normal {zs}</span>'
 
     def gex_chip(g):
         if g is None:
-            return '<span class="chip na">–</span>'
-        return (f'<span class="chip dn">▼ NEG {g/1e6:.2f}M</span>' if g < 0
-                else f'<span class="chip up">▲ +{g/1e6:.2f}M</span>')
+            return '<span class="wchip wna">n/a</span>'
+        return (f'<span class="wchip wdn">▼ NEGATIVE {g/1e6:.2f}M</span>' if g < 0
+                else f'<span class="wchip wup">▲ positive +{g/1e6:.2f}M</span>')
 
     def pct(v):
         return f'<td class="tnum {"pos" if v > 0 else ("neg" if v < 0 else "")}">{v*100:+.1f}%</td>' if v is not None else '<td class="tnum">–</td>'
@@ -180,7 +180,12 @@ def watchlist_card(journal_path: str) -> str:
     ordered = sorted(latest.values(), key=lambda r: -(num(r.get("flow_z")) or 0))
     for r in ordered:
         dp = num(r.get("dp_premium"))
-        dp_cell = f'${dp/1e6:.0f}M / {r.get("dp_prints")}' if dp else "–"
+        if dp:
+            dp_cell = f'<span class="wchip wna">${dp/1e6:.0f}M / {r.get("dp_prints")} prints</span>'
+        elif r.get("dp_prints") == "0":
+            dp_cell = '<span class="wchip wna">none today</span>'
+        else:
+            dp_cell = '<span class="wchip wna">awaiting first fetch</span>'
         body.append(f"""
         <tr>
           <td class="l"><span class="tk">{_html.escape(r['ticker'])}</span></td>
@@ -192,6 +197,13 @@ def watchlist_card(journal_path: str) -> str:
         </tr>""")
     asof = max(r["date"] for r in latest.values())
     return f"""
+  <style>
+  .wchip{{display:inline-block;padding:3px 10px;border-radius:999px;font-size:13px;font-weight:650;
+    background:var(--surface-2);border:1px solid var(--border);color:var(--ink-2)}}
+  .wchip.wup{{color:var(--good-ink);border-color:var(--good-ink)}}
+  .wchip.wdn{{color:var(--crit);border-color:var(--crit)}}
+  .wchip.wna{{color:var(--ink-2)}}
+  </style>
   <div class="card">
     <h2>Whale watchlist — forward test (as of {_html.escape(asof)})</h2>
     <div class="scroll"><table>
