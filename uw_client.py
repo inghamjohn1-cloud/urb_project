@@ -39,9 +39,9 @@ class UWClient:
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         url = BASE_URL + path
         if params:
-            # drop None values, keep the rest
+            # drop None values, keep the rest; doseq repeats list-valued keys
             clean = {k: v for k, v in params.items() if v is not None}
-            url += "?" + urllib.parse.urlencode(clean)
+            url += "?" + urllib.parse.urlencode(clean, doseq=True)
 
         headers = {
             "Authorization": f"Bearer {self.token}",
@@ -108,6 +108,67 @@ class UWClient:
         """
         data = self._get("/api/market/sector-etfs")
         return _unwrap(data)
+
+    # -- single-name swing scanner endpoints -------------------------------
+    def flow_alerts(self, **filters) -> list[dict]:
+        """Rule-triggered unusual options-flow alerts across the whole market.
+
+        GET /api/option-trades/flow-alerts
+
+        Accepts the endpoint's query parameters directly, e.g.
+            flow_alerts(min_premium=250000, min_dte=14, max_dte=90,
+                        is_sweep=True, all_opening=True, limit=200)
+
+        List-valued filters (`rule_name`, `issue_types`) are sent as the
+        repeated bracket params the API expects.
+        """
+        return _unwrap(self._get("/api/option-trades/flow-alerts",
+                                 _encode_filters(filters)))
+
+    def ticker_flow_alerts(self, ticker: str, **filters) -> list[dict]:
+        """Flow alerts scoped to a single ticker.
+
+        GET /api/stock/{ticker}/flow-alerts
+        """
+        return _unwrap(self._get(f"/api/stock/{ticker}/flow-alerts",
+                                 _encode_filters(filters)))
+
+    def darkpool_trades(self, ticker: str, **filters) -> list[dict]:
+        """Recent off-exchange (dark pool / TRF) prints for one ticker.
+
+        GET /api/darkpool/{ticker}
+        """
+        return _unwrap(self._get(f"/api/darkpool/{ticker}",
+                                 _encode_filters(filters)))
+
+    def stock_screener(self, **filters) -> list[dict]:
+        """Ticker-level options/flow metrics — used for liquidity context.
+
+        GET /api/screener/stocks
+        """
+        return _unwrap(self._get("/api/screener/stocks", _encode_filters(filters)))
+
+
+def _encode_filters(filters: dict[str, Any]) -> dict[str, Any]:
+    """Normalise Python kwargs into the query params the UW API expects.
+
+    - None values are dropped
+    - booleans become "true"/"false" (not Python's "True"/"False")
+    - lists are sent under a "name[]" key so urlencode(doseq=True) repeats them
+    """
+    out: dict[str, Any] = {}
+    for key, val in filters.items():
+        if val is None:
+            continue
+        if isinstance(val, bool):
+            out[key] = "true" if val else "false"
+        elif isinstance(val, (list, tuple, set)):
+            items = [v for v in val if v is not None]
+            if items:
+                out[key if key.endswith("[]") else f"{key}[]"] = list(items)
+        else:
+            out[key] = val
+    return out
 
 
 def _unwrap(payload: Any) -> list[dict]:

@@ -1,0 +1,215 @@
+//@version=5
+// =============================================================================
+// Swing Confirm — technical confirmation for unusual-options-flow candidates
+// -----------------------------------------------------------------------------
+// Companion to swing_scan.py. The Python scanner finds WHO is buying (Unusual
+// Whales options flow + dark pool) and pre-scores the chart; this indicator is
+// where you VERIFY the chart half by eye before committing risk.
+//
+// It evaluates exactly the rules in swing_config.TECHNICAL, using the same
+// definitions the scanner uses (ta.ema / ta.rsi / ta.atr), and shows a
+// pass/fail checklist plus ATR-based entry, stop and 2R/3R targets.
+//
+// TradingView cannot see options flow or dark-pool prints. If you want the
+// composite score on the chart, type the scanner's Flow+DP points (0-55) into
+// the "Flow score from scanner" input; leave it at 0 to grade the chart alone.
+//
+// Add to a DAILY chart of any candidate the scanner printed.
+// =============================================================================
+
+indicator("Swing Confirm — flow candidate checklist", overlay = true,
+     max_labels_count = 100, max_lines_count = 50)
+
+// ---- Inputs -----------------------------------------------------------------
+grpD = "Direction"
+dirIn = input.string("Long", "Trade direction", options = ["Long", "Short"], group = grpD)
+isLong = dirIn == "Long"
+
+grpT = "Technical rules (match swing_config.TECHNICAL)"
+emaFastLen = input.int(50,  "Fast EMA",             group = grpT, minval = 2)
+emaSlowLen = input.int(200, "Slow EMA",             group = grpT, minval = 2)
+rsiLen     = input.int(14,  "RSI length",           group = grpT, minval = 2)
+atrLen     = input.int(14,  "ATR length",           group = grpT, minval = 2)
+volLen     = input.int(20,  "Volume average",       group = grpT, minval = 2)
+rsiLo      = input.float(45, "RSI constructive low",  group = grpT)
+rsiHi      = input.float(70, "RSI constructive high", group = grpT)
+rsiOB      = input.float(75, "RSI overbought",        group = grpT)
+maxExt     = input.float(4.0, "Max ATR from fast EMA", group = grpT, step = 0.5)
+volSurge   = input.float(1.3, "Volume surge ratio",    group = grpT, step = 0.1)
+nearHigh   = input.float(10, "Within % of 52w extreme", group = grpT, step = 1)
+boLen      = input.int(20, "Breakout lookback",         group = grpT, minval = 2)
+
+grpR = "Risk"
+stopATR  = input.float(1.5, "Stop = N x ATR",   group = grpR, step = 0.25)
+t1R      = input.float(2.0, "Target 1 (R)",     group = grpR, step = 0.5)
+t2R      = input.float(3.0, "Target 2 (R)",     group = grpR, step = 0.5)
+useEmaStop = input.bool(true, "Tighten stop to the fast EMA when closer", group = grpR)
+
+grpF = "Scanner hand-off"
+flowPts = input.float(0, "Flow score from scanner (0-55)", group = grpF,
+     minval = 0, maxval = 55, step = 0.5,
+     tooltip = "Enter the Flow + DP columns from swing_scan.py output to see " +
+               "the full composite score on the chart. 0 = chart only.")
+
+grpV = "Display"
+showTable  = input.bool(true,  "Show checklist table", group = grpV)
+showLevels = input.bool(true,  "Plot entry / stop / targets", group = grpV)
+showEmas   = input.bool(true,  "Plot EMAs", group = grpV)
+
+// ---- Core series ------------------------------------------------------------
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+rsiV    = ta.rsi(close, rsiLen)
+atrV    = ta.atr(atrLen)
+volAvg  = ta.sma(volume, volLen)
+volRatio = volAvg > 0 ? volume / volAvg : na
+
+emaFastSlope = emaFast > 0 and not na(emaFast[10]) ? (emaFast / emaFast[10] - 1) * 100 : na
+atrFromEma   = atrV > 0 ? (close - emaFast) / atrV : na
+
+hi52 = ta.highest(high, 252)
+lo52 = ta.lowest(low, 252)
+pctFromHigh = hi52 > 0 ? (hi52 - close) / hi52 * 100 : na
+pctFromLow  = close > 0 ? (close - lo52) / close * 100 : na
+
+breakoutUp   = close > ta.highest(high[1], boLen)
+breakoutDown = close < ta.lowest(low[1], boLen)
+
+// ---- Rule evaluation (mirrors swing_score.score_technical) -------------------
+// 1. Trend structure — the 50/200 relationship the scanner gates on.
+trendFull    = isLong ? (close > emaFast and emaFast > emaSlow) : (close < emaFast and emaFast < emaSlow)
+trendPartial = isLong ? (close > emaSlow) : (close < emaSlow)
+slopeOk      = na(emaFastSlope) ? true : (isLong ? emaFastSlope > 0 : emaFastSlope < 0)
+
+// 2. Extension — how far price has run from the fast EMA, in ATRs.
+extRaw   = isLong ? atrFromEma : -atrFromEma
+notExtended = na(extRaw) ? false : extRaw <= maxExt
+
+// 3. RSI behaviour.
+rsiOk = isLong ? (rsiV >= rsiLo and rsiV <= rsiHi) : (rsiV >= (100 - rsiHi) and rsiV <= (100 - rsiLo))
+rsiChase = isLong ? rsiV > rsiOB : rsiV < (100 - rsiOB)
+rsiRising = rsiV > rsiV[5]
+rsiMomOk = isLong ? rsiRising : not rsiRising
+
+// 4. Volume expansion on the move.
+volOk = na(volRatio) ? false : volRatio >= volSurge
+
+// 5. Structure — breakout and position vs the 52-week extreme.
+structOk = isLong ? (breakoutUp or pctFromHigh <= nearHigh) : (breakoutDown or pctFromLow <= nearHigh)
+
+// ---- Chart score (0-45, the technical + liquidity share of the composite) ----
+techScore = 0.0
+techScore := techScore + (trendFull ? 12.0 : trendPartial ? 6.0 : 0.0)
+techScore := techScore * (slopeOk ? 1.0 : 0.75)
+techScore := techScore + (notExtended ? (na(extRaw) ? 0.0 : 5.0 * (1.0 - math.min(math.max(extRaw, 0) / maxExt, 1.0) * 0.5)) : 0.0)
+techScore := techScore + (rsiOk ? 8.0 : rsiChase ? 2.0 : 5.6)
+techScore := techScore + (rsiMomOk ? 1.0 : 0.0)
+techScore := techScore + (volOk ? 6.0 : (na(volRatio) or volRatio < 1.0) ? 1.2 : 3.0)
+techScore := techScore + (structOk ? 4.0 : 0.0)
+techScore := math.min(techScore, 35.0)
+
+compositeScore = flowPts > 0 ? techScore + flowPts + 8.0 : na   // +8 = typical liquidity credit
+tierStr = na(compositeScore) ? "—" : compositeScore >= 78 ? "A" : compositeScore >= 65 ? "B" : compositeScore >= 55 ? "C" : "reject"
+
+// ---- Risk levels ------------------------------------------------------------
+atrStop = isLong ? close - stopATR * atrV : close + stopATR * atrV
+emaStop = isLong ? emaFast - 0.5 * atrV : emaFast + 0.5 * atrV
+
+// Use the structural (EMA) stop when it is tighter than the raw ATR stop —
+// the EMA is where the thesis actually breaks. Same rule as swing_score.py.
+stopLvl = atrStop
+if useEmaStop and not na(emaStop)
+    if isLong and emaStop < close
+        stopLvl := math.max(atrStop, emaStop)
+    else if not isLong and emaStop > close
+        stopLvl := math.min(atrStop, emaStop)
+
+riskPS  = math.abs(close - stopLvl)
+tgt1    = isLong ? close + t1R * riskPS : close - t1R * riskPS
+tgt2    = isLong ? close + t2R * riskPS : close - t2R * riskPS
+
+// ---- Plots ------------------------------------------------------------------
+plot(showEmas ? emaFast : na, "Fast EMA", color = color.new(color.orange, 0), linewidth = 2)
+plot(showEmas ? emaSlow : na, "Slow EMA", color = color.new(color.blue, 0), linewidth = 2)
+
+// Background tint when every rule lines up — the "all clear" state.
+allClear = trendFull and slopeOk and notExtended and rsiOk and volOk and structOk
+bgcolor(allClear ? color.new(isLong ? color.green : color.red, 90) : na, title = "All rules pass")
+
+plot(showLevels ? stopLvl : na, "Stop",     color = color.new(color.red, 0),    style = plot.style_linebr)
+plot(showLevels ? tgt1    : na, "Target 1", color = color.new(color.teal, 0),   style = plot.style_linebr)
+plot(showLevels ? tgt2    : na, "Target 2", color = color.new(color.green, 0),  style = plot.style_linebr)
+
+// ---- Checklist table --------------------------------------------------------
+f_mark(ok) => ok ? "✔" : "✘"
+f_col(ok) => ok ? color.new(color.green, 20) : color.new(color.red, 25)
+
+var table tbl = table.new(position.top_right, 3, 11, border_width = 1)
+if showTable and barstate.islast
+    table.clear(tbl, 0, 0, 2, 10)
+    table.cell(tbl, 0, 0, "Swing Confirm — " + dirIn, text_color = color.white,
+         bgcolor = color.new(color.gray, 20), text_size = size.small)
+    table.cell(tbl, 1, 0, "state", text_color = color.white,
+         bgcolor = color.new(color.gray, 20), text_size = size.small)
+    table.cell(tbl, 2, 0, "value", text_color = color.white,
+         bgcolor = color.new(color.gray, 20), text_size = size.small)
+
+    table.cell(tbl, 0, 1, "Trend 50/200", text_size = size.small)
+    table.cell(tbl, 1, 1, f_mark(trendFull), bgcolor = f_col(trendFull), text_size = size.small)
+    table.cell(tbl, 2, 1, str.tostring(emaFast, format.mintick) + " / " + str.tostring(emaSlow, format.mintick), text_size = size.small)
+
+    table.cell(tbl, 0, 2, "EMA slope", text_size = size.small)
+    table.cell(tbl, 1, 2, f_mark(slopeOk), bgcolor = f_col(slopeOk), text_size = size.small)
+    table.cell(tbl, 2, 2, str.tostring(emaFastSlope, "#.##") + "%", text_size = size.small)
+
+    table.cell(tbl, 0, 3, "Not extended", text_size = size.small)
+    table.cell(tbl, 1, 3, f_mark(notExtended), bgcolor = f_col(notExtended), text_size = size.small)
+    table.cell(tbl, 2, 3, str.tostring(extRaw, "#.#") + " ATR", text_size = size.small)
+
+    table.cell(tbl, 0, 4, "RSI band", text_size = size.small)
+    table.cell(tbl, 1, 4, f_mark(rsiOk), bgcolor = f_col(rsiOk), text_size = size.small)
+    table.cell(tbl, 2, 4, str.tostring(rsiV, "#.#") + (rsiChase ? " chase" : ""), text_size = size.small)
+
+    table.cell(tbl, 0, 5, "Volume", text_size = size.small)
+    table.cell(tbl, 1, 5, f_mark(volOk), bgcolor = f_col(volOk), text_size = size.small)
+    table.cell(tbl, 2, 5, str.tostring(volRatio, "#.##") + "x", text_size = size.small)
+
+    table.cell(tbl, 0, 6, "Structure", text_size = size.small)
+    table.cell(tbl, 1, 6, f_mark(structOk), bgcolor = f_col(structOk), text_size = size.small)
+    table.cell(tbl, 2, 6, (isLong ? str.tostring(pctFromHigh, "#.#") + "% < 52wH"
+                                  : str.tostring(pctFromLow, "#.#") + "% > 52wL"), text_size = size.small)
+
+    table.cell(tbl, 0, 7, "Chart score", text_size = size.small,
+         bgcolor = color.new(color.gray, 70))
+    table.cell(tbl, 1, 7, str.tostring(techScore, "#.#") + "/35", text_size = size.small,
+         bgcolor = color.new(color.gray, 70))
+    table.cell(tbl, 2, 7, na(compositeScore) ? "add flow pts" :
+         "total " + str.tostring(compositeScore, "#.#") + " (" + tierStr + ")",
+         text_size = size.small, bgcolor = color.new(color.gray, 70))
+
+    table.cell(tbl, 0, 8, "Entry", text_size = size.small)
+    table.cell(tbl, 1, 8, str.tostring(close, format.mintick), text_size = size.small)
+    table.cell(tbl, 2, 8, "ATR " + str.tostring(atrV, "#.##"), text_size = size.small)
+
+    table.cell(tbl, 0, 9, "Stop", text_size = size.small)
+    table.cell(tbl, 1, 9, str.tostring(stopLvl, format.mintick),
+         bgcolor = color.new(color.red, 70), text_size = size.small)
+    table.cell(tbl, 2, 9, "risk " + str.tostring(riskPS / close * 100, "#.#") + "%", text_size = size.small)
+
+    table.cell(tbl, 0, 10, "Targets", text_size = size.small)
+    table.cell(tbl, 1, 10, str.tostring(tgt1, format.mintick),
+         bgcolor = color.new(color.teal, 70), text_size = size.small)
+    table.cell(tbl, 2, 10, str.tostring(tgt2, format.mintick),
+         bgcolor = color.new(color.green, 70), text_size = size.small)
+
+// ---- Alerts -----------------------------------------------------------------
+// Fires the first bar every rule aligns, so a C-tier watchlist name tells you
+// when its chart finally catches up to its flow.
+alertcondition(allClear and not allClear[1], "Swing setup confirmed",
+     "{{ticker}}: all swing rules aligned on the daily")
+alertcondition(isLong and close < stopLvl, "Long stop breached",
+     "{{ticker}}: closed below the ATR/EMA stop")
+alertcondition(not isLong and close > stopLvl, "Short stop breached",
+     "{{ticker}}: closed above the ATR/EMA stop")
+alertcondition(isLong and close >= tgt1 and close[1] < tgt1, "Target 1 reached",
+     "{{ticker}}: hit 2R — take the first scale")

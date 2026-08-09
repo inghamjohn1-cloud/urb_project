@@ -12,6 +12,16 @@ renders the signals as a mobile-friendly HTML page you open each morning. See
 [Backtesting](#backtesting), [Daily dashboard](#daily-dashboard), and the
 [Roadmap](#roadmap) for what else can be built on the same data stack.
 
+> **Also in this repo — the single-name swing scanner.** `swing_scan.py` is a
+> separate, complementary strategy: it screens **liquid individual U.S. equities**
+> for unusual options activity ($250k+ premium, 14–90 DTE, sweeps/opening),
+> confirms with dark-pool blocks and a 50/200 EMA + RSI + volume technical
+> filter, and ranks the survivors 0–100 with ATR-based entry/stop/target and
+> position sizing. Full scan logic, the exact Unusual Whales filter settings, the
+> Pine v5 confirmation script, and a daily operating checklist are documented in
+> **[SWING_SCANNER.md](SWING_SCANNER.md)**. Run `python test_swing.py` for its
+> offline test suite.
+
 ## What it does
 
 1. Pulls ~1 year of daily OHLC for SPY + the 11 sector ETFs from Unusual Whales.
