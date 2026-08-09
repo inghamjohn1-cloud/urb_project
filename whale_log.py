@@ -24,11 +24,14 @@ import os
 import statistics
 import sys
 
+# pec_type was dropped after the historical study found no edge in the
+# overreaction case it encoded. The column was blank in every logged row, so
+# it was removed from the journal rather than carried forever as dead width.
 COLUMNS = ["date", "ticker", "close", "ret_21d", "ret_63d",
            "net_prem_5d", "flow_z", "flow_state",
            "dp_prints", "dp_premium", "dp_largest", "dp_at_or_above_close",
            "gex_call_gamma", "gex_put_gamma", "gex_net_gamma",
-           "pec_signal", "pec_type"]
+           "pec_signal"]
 
 
 def _f(v):

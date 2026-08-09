@@ -82,6 +82,17 @@ def evaluate(rows, min_events):
         v = _f(r.get("dp_at_or_above_close"))
         return v is not None and v > 0.5
 
+    def _strong_flow(r):
+        """The tier that carried the edge in the historical study.
+
+        pec_scan writes the reaction-day net premium into net_prem_5d. Events
+        below -$1M scored +5.2% at 21d (t=2.44); shallower ones +1.1% (t=0.26).
+        Pre-registered here so the forward test can confirm or kill the split
+        on out-of-sample data rather than re-deriving it from the same events.
+        """
+        v = _f(r.get("net_prem_5d"))
+        return v is not None and v <= -1_000_000
+
     checks = {
         "euphoria": lambda r: r.get("flow_state") == "euphoria",
         "capitulation": lambda r: r.get("flow_state") == "capitulation",
@@ -92,6 +103,8 @@ def evaluate(rows, min_events):
         # These fire once pec_scan.py has logged stub rows and subsequent
         # whale_log.py runs have added close prices to the journal.
         "pec_signal": lambda r: _pec(r),
+        "pec_strong_flow": lambda r: _pec(r) and _strong_flow(r),
+        "pec_weak_flow": lambda r: _pec(r) and not _strong_flow(r),
         "pec_with_dp": lambda r: _pec(r) and _dp_accum(r),
         "pec_full": lambda r: (_pec(r) and _dp_accum(r)
                                and r.get("flow_state") == "capitulation"),
@@ -99,8 +112,11 @@ def evaluate(rows, min_events):
         # the two theses stand or fall on their own numbers: a broken print
         # being liquidated is a different trade from a price move the earnings
         # never justified, and pooling them would hide whichever one works.
-        "pec_capitulation": lambda r: _pec(r) and r.get("pec_type") == "capitulation",
-        "pec_overreaction": lambda r: _pec(r) and r.get("pec_type") == "overreaction",
+        # pec_capitulation / pec_overreaction lived here until the historical
+        # study (pec_study.py, n=945) measured the overreaction case at zero
+        # edge across all three horizons and pec_scan stopped emitting
+        # pec_type. Both checks would now match nothing, so they are gone
+        # rather than left to print "no events yet" forever.
     }
 
     report = {}

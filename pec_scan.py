@@ -1,25 +1,41 @@
 #!/usr/bin/env python3
 """Post-Earnings Capitulation Scanner.
 
-Three-stage pipeline run once per trading day (after close) to find
-beaten-down stocks where post-earnings selling may be exhausted and
-institutional accumulation is beginning.
+Three-stage pipeline run once per trading day (after close) to find stocks
+that reported a badly broken quarter and are being sold hard in the options
+market — a setup that historically reverts over the following month.
 
-Candidates are classified by why the stock is down, since the two cases are
-different trades and are tracked separately in the forward-test journal:
+Tuned against pec_study.py: 945 earnings events across 119 liquid names,
+2024-08 to 2026-08. What that study found, and what this scanner encodes:
 
-  capitulation — the print was genuinely broken (severe EPS miss) and holders
-                 are liquidating a real deterioration.
-  overreaction — earnings were a small miss or an outright beat, yet the stock
-                 fell hard anyway; the price move outruns the result.
+  A real EPS miss is the setup.        miss <= -20%:  +2.2% at 21d (n=67)
+  Negative net premium doubles it.     + neg flow:    +4.3% at 21d, 71% win
+  Positive flow inverts it.            + pos flow:    -3.7% at 21d, 44% win
+  Size of the flow matters.            <= -$1M:       +5.2% edge, t=2.44
+                                       >  -$1M:       +1.1% edge, t=0.26
 
-  Stage 1 — Earnings screen  : stocks that reported in the last N days,
-                                including modest beats (--max-surprise) so
-                                overreactions are not screened out.
-  Stage 2 — Flow screen      : confirm capitulation options flow and
-                                price damage vs the pre-earnings close.
-  Stage 3 — Accumulation     : detect large floor/block call buying via
-                                flow alert rules.
+and, just as importantly, what it ruled out:
+
+  A stock falling further than the options market priced in carries NO
+  information (n=172, edge ~0.0% at every horizon). An earlier version of
+  this scanner scored that "overreaction" case; the study killed it. Size
+  of the selloff is likewise not predictive within the qualifying set
+  (-10% or worse: +5.0%, milder: +3.9% — the same trade).
+
+So the two gates below are requirements, not points. Everything the score
+adds on top is a tiebreaker, and only the net-premium magnitude tier has
+evidence behind it.
+
+  Stage 1 — Earnings screen  : stocks that reported in the last N days with
+                                an EPS miss at or beyond --max-surprise.
+  Stage 2 — Flow screen      : price damage vs the pre-earnings close, plus
+                                the net premium that gates the signal.
+  Stage 3 — Accumulation     : large floor/block call buying via flow alert
+                                rules. Unvalidated — the alert history does
+                                not reach back far enough to test.
+
+Holding period: the edge is a 10-to-21-day effect. There was nothing at 5
+days (+0.6%), so this is not a bounce trade.
 
 Outputs
 -------
@@ -60,20 +76,18 @@ CANDIDATE_COLS = [
     "net_premium", "put_call_ratio", "iv_rank",
     "floor_alert_count", "repeat_hit_count", "sweep_floor_count",
     "is_sp500", "market_cap", "sector",
-    "pec_score", "pec_signal", "pec_type",
+    "pec_score", "pec_signal",
 ]
 
-# surprise_pct is EPS surprise as a percentage of the estimate, so it blows up
-# for companies with near-zero estimates (a 2c miss on a 1c estimate is -200%).
-# These cutoffs separate a genuinely broken print from a rounding-error miss.
-SEVERE_MISS_PCT = -100.0
-MODERATE_MISS_PCT = -20.0
+# Gate 1: EPS surprise as a percentage of the estimate. -20% is where the
+# study's edge appears and it is not a knife edge — the bucket boundary was
+# tested, not fitted. Misses milder than this behave like the baseline.
+MISS_PCT = -20.0
 
-# An overreaction is a large price decline that the earnings result does not
-# justify: the print was a small miss or an outright beat, and the stock fell
-# anyway (guidance cut, multiple compression, forced selling).
-OVERREACTION_SELLOFF = -0.10
-MILD_OVERREACTION_SELLOFF = -0.05
+# Gate 2: net options premium on the reaction day must be negative. Sign
+# alone decides the gate; magnitude decides the score. -$1M separated
+# t=2.44 from t=0.26, which is the difference between a signal and a coin flip.
+STRONG_FLOW = -1_000_000.0
 
 # Flow alert rules that indicate institutional accumulation.
 ACCUM_RULES = [
@@ -126,78 +140,62 @@ def _candle_date(c: dict) -> str:
 
 # ── PEC classification ────────────────────────────────────────────────────────
 
-def pec_type(c: dict) -> str:
-    """Classify why the stock is down: capitulation, overreaction, or mixed.
+def pec_qualifies(c: dict) -> bool:
+    """The two gates the historical study actually supports.
 
-    capitulation — the print itself was broken (severe EPS miss) and the stock
-                   sold off; sellers are liquidating a real deterioration.
-    overreaction — earnings were a small miss or a beat, yet the stock still
-                   fell hard; the price move is disproportionate to the result.
-    mixed        — a moderate miss with a moderate decline, or too little
-                   dislocation either way to call it.
+    Both must hold. A miss with positive net premium was the single worst
+    bucket measured (-3.7% at 21d, 44% win) — worse than no trade at all —
+    so this is a conjunction, not a preponderance of evidence.
     """
-    selloff = _f(c.get("earnings_selloff_pct"), 0.0) or 0.0
     surprise = _f(c.get("surprise_pct"))
+    net_prem = _f(c.get("net_premium"))
+    selloff = _f(c.get("earnings_selloff_pct"))
+    return (surprise is not None and surprise <= MISS_PCT
+            and net_prem is not None and net_prem < 0
+            and selloff is not None and selloff < 0)
 
-    if surprise is not None and surprise <= SEVERE_MISS_PCT:
-        return "capitulation"
-    if (surprise is None or surprise > MODERATE_MISS_PCT) and selloff <= MILD_OVERREACTION_SELLOFF:
-        return "overreaction"
-    return "mixed"
 
-
-# ── PEC score (0–10) ──────────────────────────────────────────────────────────
+# ── PEC score (0–5) ───────────────────────────────────────────────────────────
 
 def pec_score(c: dict) -> int:
-    """Score one candidate 0–10 across five dimensions (2 pts each)."""
-    score = 0
+    """Rank conviction among candidates that already passed both gates.
 
-    # 1. Selloff magnitude from pre-earnings close
-    selloff = _f(c.get("earnings_selloff_pct"), 0.0)
-    if selloff <= -0.10:
+    Deliberately small. The old 0–10 score spread five dimensions across ten
+    points and implied a precision the data does not support: of those five,
+    the study found selloff magnitude and earnings/price dislocation carry no
+    signal at all. Only the first point below is evidence-backed.
+
+    Returns 0 for anything that fails the gates, so score and signal cannot
+    disagree.
+    """
+    if not pec_qualifies(c):
+        return 0
+
+    score = 1  # cleared both gates
+
+    # VALIDATED: flow magnitude. Below -$1M the edge was +5.2% at 21d with
+    # t=2.44; above it, +1.1% and t=0.26. This is the one real discriminator.
+    net_prem = _f(c.get("net_premium"), 0.0) or 0.0
+    if net_prem <= STRONG_FLOW:
         score += 2
-    elif selloff <= -0.05:
+
+    # THIN: elevated IV rank looked strong (+9.9% edge, 86% win) but on n=7.
+    # Worth one point to break ties and to accumulate forward evidence; not
+    # worth more until the sample grows.
+    iv = _f(c.get("iv_rank"))
+    if iv is not None and iv > 50:
         score += 1
 
-    # 2. Earnings/price dislocation — either the print was badly broken, or it
-    #    was fine and the stock fell anyway. Both are setups; a moderate miss
-    #    matched by a moderate decline is the uninteresting middle and scores low.
-    surprise = _f(c.get("surprise_pct"))
-    if surprise is not None and surprise <= SEVERE_MISS_PCT:
-        score += 2
-    elif surprise is None or surprise > MODERATE_MISS_PCT:
-        if selloff <= OVERREACTION_SELLOFF:
-            score += 2
-        elif selloff <= MILD_OVERREACTION_SELLOFF:
-            score += 1
-    else:
-        score += 1
-
-    # 3. Capitulation flow (net options premium negative + put/call elevated)
-    net_prem = _f(c.get("net_premium"), 0.0)
-    pcr = _f(c.get("put_call_ratio"), 0.0)
-    if net_prem is not None and net_prem < 0 and pcr is not None and pcr > 1.2:
-        score += 2
-    elif net_prem is not None and net_prem < 0:
-        score += 1
-
-    # 4. Accumulation signal (floor/block/sweep call prints)
+    # UNVALIDATED: call accumulation. The flow-alert history does not reach
+    # back far enough to test, so it stays a tiebreaker rather than a gate —
+    # it is the leg the original thesis was built on and still unproven.
     alerts = (int(c.get("floor_alert_count") or 0)
               + int(c.get("repeat_hit_count") or 0)
               + int(c.get("sweep_floor_count") or 0))
-    if alerts >= 2:
-        score += 2
-    elif alerts >= 1:
+    if alerts >= 1:
         score += 1
 
-    # 5. Quality + recency bonus
-    if c.get("is_sp500") in (True, "True", "true", "1", 1):
-        score += 1
-    days = _f(c.get("days_since_earnings"))
-    if days is not None and 1 <= days <= 3:
-        score += 1
-
-    return min(score, 10)
+    return min(score, 5)
 
 
 # ── pipeline stages ───────────────────────────────────────────────────────────
@@ -418,11 +416,12 @@ def build_candidates(
             "sector": fr.get("sector") or "",
             "pec_score": 0,
             "pec_signal": False,
-            "pec_type": "",
         }
         c["pec_score"] = pec_score(c)
-        c["pec_signal"] = c["pec_score"] >= 6
-        c["pec_type"] = pec_type(c)
+        # The gates decide the signal; the score only ranks what already
+        # passed. Keeping the old "score >= threshold" test would let a stack
+        # of tiebreakers manufacture a signal the study never supported.
+        c["pec_signal"] = pec_qualifies(c)
         candidates.append(c)
 
     candidates.sort(key=lambda c: c["pec_score"], reverse=True)
@@ -475,7 +474,6 @@ def write_journal_stubs(candidates: list[dict], journal_path: str) -> int:
         stub["close"] = c.get("close") or ""
         stub["flow_state"] = "capitulation"
         stub["pec_signal"] = "True"
-        stub["pec_type"] = c.get("pec_type", "")
         # net_prem_5d: screener net_premium is a daily aggregate, not a 5-day
         # mean, but it confirms the capitulation direction for the verdict check.
         np = _f(c.get("net_premium"))
@@ -518,12 +516,12 @@ def update_earnings_cache(earnings_rows: list[dict],
 # ── display ───────────────────────────────────────────────────────────────────
 
 def print_table(candidates: list[dict]) -> None:
-    W = 110
+    W = 104
     print(f"\n{'─' * W}")
-    print(f"{'POST-EARNINGS CAPITULATION / OVERREACTION CANDIDATES':^{W}}")
+    print(f"{'POST-EARNINGS CAPITULATION CANDIDATES':^{W}}")
     print(f"{'─' * W}")
-    hdr = (f"{'TICKER':<8} {'SCR':>4}  {'TYPE':<13}  {'DAYS':>4}  {'SELLOFF':>8}  "
-           f"{'SURP%':>8}  {'NET_PREM':>10}  {'PCR':>5}  "
+    hdr = (f"{'TICKER':<8} {'SCR':>4}  {'GATES':<9}  {'DAYS':>4}  {'SELLOFF':>8}  "
+           f"{'SURP%':>8}  {'NET_PREM':>10}  {'IVR':>5}  "
            f"{'ALERTS':>6}  {'SECTOR':<22}")
     print(hdr)
     print("─" * W)
@@ -535,42 +533,51 @@ def print_table(candidates: list[dict]) -> None:
                 if c.get("surprise_pct") != "" else "n/a")
         np = _f(c.get("net_premium"))
         net_p = f"${np/1e6:.1f}M" if np is not None else "n/a"
-        pcr = _f(c.get("put_call_ratio"))
-        pcr_s = f"{pcr:.2f}" if pcr is not None else "n/a"
+        iv = _f(c.get("iv_rank"))
+        iv_s = f"{iv:.0f}" if iv is not None else "n/a"
         alerts = (c.get("floor_alert_count", 0)
                   + c.get("repeat_hit_count", 0)
                   + c.get("sweep_floor_count", 0))
         sig = " ◆" if c["pec_signal"] else "  "
+        # Show which gate a rejected row failed, so it is diagnosable without
+        # re-reading the CSV. Name the gate that failed, not the one that held.
+        sp_v = _f(c.get("surprise_pct"))
+        if c["pec_signal"]:
+            gates = "miss+flow"
+        elif sp_v is None or sp_v > MISS_PCT:
+            gates = "no miss"
+        else:
+            gates = "no flow"
         days = c.get("days_since_earnings")
         days_s = str(days) if days is not None else "?"
         print(f"{c['ticker']:<8} {c['pec_score']:>3}{sig}  "
-              f"{c.get('pec_type',''):<13}  {days_s:>4}  "
-              f"{selloff:>8}  {surp:>8}  {net_p:>10}  {pcr_s:>5}  "
+              f"{gates:<9}  {days_s:>4}  "
+              f"{selloff:>8}  {surp:>8}  {net_p:>10}  {iv_s:>5}  "
               f"{alerts:>6}  {c.get('sector',''):<22}")
 
     print("─" * W)
     signals = [c for c in candidates if c["pec_signal"]]
-    by_type = {t: sum(1 for c in candidates if c.get("pec_type") == t)
-               for t in ("capitulation", "overreaction", "mixed")}
-    print(f"\n◆ = signal (score ≥ 6)   "
-          f"{len(signals)} signal{'s' if len(signals) != 1 else ''} "
-          f"of {len(candidates)} candidates   "
-          + "  ".join(f"{t}={n}" for t, n in by_type.items() if n))
+    print(f"\n◆ = both gates passed (EPS miss ≤ {MISS_PCT:.0f}% and negative net premium)")
+    print(f"{len(signals)} signal{'s' if len(signals) != 1 else ''} "
+          f"of {len(candidates)} candidates")
 
     if signals:
-        print("\nHIGH-CONVICTION SETUPS:")
+        print("\nQUALIFYING SETUPS:")
         for c in signals:
             days = c.get("days_since_earnings", "?")
             sf = (f"{c['earnings_selloff_pct']*100:.1f}%"
                   if c.get("earnings_selloff_pct") != "" else "n/a")
             sp = (f"{c['surprise_pct']:.1f}%"
                   if c.get("surprise_pct") != "" else "n/a")
-            verdict = ("price move not justified by the print"
-                       if c.get("pec_type") == "overreaction"
-                       else "sellers liquidating a broken print")
+            np_v = _f(c.get("net_premium"), 0.0) or 0.0
+            strength = ("flow below -$1M — the tier that carried the edge"
+                        if np_v <= STRONG_FLOW
+                        else "flow negative but shallow — the weak tier (t=0.26)")
             print(f"  {c['ticker']:6s} — {days}d post-print  "
-                  f"{sf} selloff vs {sp} EPS surprise  score {c['pec_score']}/10  "
-                  f"[{c.get('pec_type','')}: {verdict}]")
+                  f"{sp} EPS miss, {sf} selloff  score {c['pec_score']}/5")
+            print(f"           {strength}")
+        print("\nHold to 10–21 days. The study found nothing at 5 days (+0.6%),")
+        print("so exiting early gives up the entire measured effect.")
 
         print("\nTo log these tickers into the forward-test journal with full flow history,")
         print("fetch each ticker's OHLC (get_ticker_ohlc_latest_or_date, ≥70 rows) then:")
@@ -587,13 +594,14 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Post-Earnings Capitulation Scanner")
     ap.add_argument("--days-back", type=int, default=5,
                     help="earnings reported in last N calendar days (default 5)")
-    ap.add_argument("--min-selloff", type=float, default=0.05,
-                    help="minimum price decline to qualify (default 0.05 = 5%%)")
+    ap.add_argument("--min-selloff", type=float, default=0.0,
+                    help="minimum price decline to qualify (default 0.0 = any "
+                         "decline; selloff size was not predictive)")
     ap.add_argument("--min-marketcap", type=int, default=2_000_000_000,
                     help="minimum market cap (default 2 000 000 000 = $2B)")
-    ap.add_argument("--max-surprise", type=float, default=15.0,
-                    help="max EPS surprise %% to include (default 15; above 0 "
-                         "so beats that still sold off are caught)")
+    ap.add_argument("--max-surprise", type=float, default=MISS_PCT,
+                    help=f"max EPS surprise %% to include (default {MISS_PCT:.0f}, "
+                         "the study's miss threshold)")
     ap.add_argument("--output", default="logs/pec_candidates.csv",
                     help="candidates CSV output path")
     ap.add_argument("--journal", default="logs/whale_journal.csv",
@@ -609,8 +617,10 @@ def main(argv=None):
 
     print(f"Post-Earnings Capitulation Scanner  {today}")
     print(f"Window {min_date}→{today}  "
+          f"EPS miss ≤{args.max_surprise:.0f}%  "
           f"min-selloff {args.min_selloff*100:.0f}%  "
-          f"min-mktcap ${args.min_marketcap/1e9:.0f}B\n")
+          f"min-mktcap ${args.min_marketcap/1e9:.0f}B")
+    print("gates: EPS miss + negative net premium (pec_study.py, n=945)\n")
 
     try:
         client = UWClient()
