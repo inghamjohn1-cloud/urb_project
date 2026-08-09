@@ -126,7 +126,20 @@ class OptionPlan:
 
 
 def budget_for(tier: str, account_size: float = ACCOUNT_SIZE) -> float:
-    return account_size * OPTIONS["risk_pct_by_tier"].get(tier, 0.0)
+    """Risk budget in dollars for one idea at this tier.
+
+    Under concentration mode every FUNDED tier draws the A-tier budget — the
+    account only carries one position, so there is no reason to under-fund a
+    B-tier idea that has already cleared the same gates. Tiers configured at
+    zero (C, watchlist) stay at zero: concentration never promotes a name the
+    scoring engine declined to size.
+    """
+    pct = OPTIONS["risk_pct_by_tier"].get(tier, 0.0)
+    if pct <= 0:
+        return 0.0
+    if OPTIONS.get("concentration_mode"):
+        pct = OPTIONS["risk_pct_by_tier"]["A"]
+    return account_size * pct
 
 
 def min_practical_width(expected_move: float, increment: float,
@@ -327,9 +340,23 @@ def render_row(c, p: OptionPlan) -> str:
             f"{c.liq_score:>5.1f}  {tag:<18}{p.reason}")
 
 
-def render(candidates, plans) -> str:
+def banner(account_size: float = ACCOUNT_SIZE) -> str:
+    """One line stating the sizing regime, so the rules are never implicit."""
+    a = budget_for("A", account_size)
+    if OPTIONS.get("concentration_mode"):
+        return (f"CONCENTRATION MODE — ONE position at a time, funded at the "
+                f"A-tier rate ${a:,.0f} "
+                f"({OPTIONS['risk_pct_by_tier']['A']:.0%} of ${account_size:,.0f}) "
+                f"regardless of tier. C-tier stays watchlist-only.")
+    b = budget_for("B", account_size)
+    return (f"GRADED MODE — up to {OPTIONS['max_concurrent']} positions; "
+            f"A ${a:,.0f} / B ${b:,.0f}; "
+            f"total risk cap {OPTIONS['max_total_risk_pct']:.0%}.")
+
+
+def render(candidates, plans, account_size: float = ACCOUNT_SIZE) -> str:
     """Full report: tradeable spreads first, then everything filtered out."""
-    out = [HEADER, "-" * len(HEADER)]
+    out = [banner(account_size), "", HEADER, "-" * len(HEADER)]
     live = [(c, p) for c, p in zip(candidates, plans) if p.tradeable]
     dead = [(c, p) for c, p in zip(candidates, plans) if not p.tradeable]
 
@@ -348,7 +375,8 @@ def render(candidates, plans) -> str:
             out.append(render_row(c, p))
 
     total = sum(p.max_risk for p in plans if p.tradeable)
+    n = sum(1 for p in plans if p.tradeable)
     out.append("")
-    out.append(f"open risk ${total:,.0f} across "
-               f"{sum(1 for p in plans if p.tradeable)} position(s)")
+    out.append(f"open risk ${total:,.0f} across {n} position(s) "
+               f"— limit {OPTIONS['max_concurrent']}")
     return "\n".join(out)

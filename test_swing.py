@@ -853,9 +853,36 @@ class TestOptionsSizing(unittest.TestCase):
         self.assertAlmostEqual(p.max_profit, (p.width - p.debit) * 100 * p.contracts,
                                places=2)
 
-    def test_a_tier_gets_more_budget_than_b_tier(self):
-        self.assertGreater(opt.budget_for("A", 5_000.0), opt.budget_for("B", 5_000.0))
+    def test_concentration_mode_funds_b_tier_at_the_a_tier_rate(self):
+        """One position at a time, so a B-tier idea is not under-funded."""
+        self.assertTrue(OPTIONS["concentration_mode"])
+        self.assertEqual(opt.budget_for("B", 5_000.0), opt.budget_for("A", 5_000.0))
+        self.assertEqual(opt.budget_for("A", 5_000.0), 250.0)
+
+    def test_concentration_never_funds_a_watchlist_tier(self):
+        """C is zero by configuration and must stay zero, not get promoted."""
         self.assertEqual(opt.budget_for("C", 5_000.0), 0.0)
+
+    def test_graded_mode_restores_the_tier_split(self):
+        OPTIONS["concentration_mode"] = False
+        try:
+            self.assertGreater(opt.budget_for("A", 5_000.0),
+                               opt.budget_for("B", 5_000.0))
+            self.assertEqual(opt.budget_for("B", 5_000.0), 150.0)
+            self.assertEqual(opt.budget_for("C", 5_000.0), 0.0)
+        finally:
+            OPTIONS["concentration_mode"] = True
+
+    def test_only_one_position_is_ever_funded(self):
+        cands = [self._cand() for _ in range(5)]
+        plans = opt.plan_all(cands, TODAY, 100_000.0)
+        self.assertEqual(sum(1 for p in plans if p.tradeable), 1)
+
+    def test_banner_states_the_concentration_rule(self):
+        text = opt.banner(5_000.0)
+        self.assertIn("CONCENTRATION MODE", text)
+        self.assertIn("ONE position", text)
+        self.assertIn("$250", text)
 
     def test_c_tier_is_watchlist_only(self):
         p = opt.plan_spread(self._cand(tier="C"), TODAY, 5_000.0)

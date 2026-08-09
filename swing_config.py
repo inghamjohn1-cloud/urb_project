@@ -181,8 +181,16 @@ OPTIONS = {
 
     # Risk per idea as a fraction of ACCOUNT_SIZE. Max loss = net debit.
     "risk_pct_by_tier": {"A": 0.05, "B": 0.03, "C": 0.0},
-    "max_concurrent": 3,            # options need watching; fewer than shares
-    "max_total_risk_pct": 0.12,     # all open debits combined
+
+    # CONCENTRATION MODE — one position at a time, funded at the A-tier rate
+    # whatever the tier. A small account cannot spread 3% across several names
+    # and still buy a spread wide enough to pay; pooling the risk into a single
+    # idea is the only way the width floor is reachable. C-tier is unaffected:
+    # zero stays zero, so a watchlist name never gets funded by concentration.
+    # Set False to restore the graded A/B budgets above.
+    "concentration_mode": True,
+    "max_concurrent": 1,            # concentration: one open position
+    "max_total_risk_pct": 0.05,     # with one position this equals the A-tier %
 
     # Expiration: nearest monthly inside this window (monthlies = liquidity).
     "target_dte": 30,
