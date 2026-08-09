@@ -58,13 +58,19 @@ def fwd_returns(rows):
     return out
 
 
-def evaluate(rows, min_events):
+def evaluate(rows, min_events, earnings_blackout=7):
     fr = fwd_returns(rows)
     n = len(rows)
     base = {h: [fr[i][h] for i in range(n) if fr[i][h] is not None] for h in HORIZONS}
 
+    def _near_earnings(r):
+        if not earnings_blackout:
+            return False
+        d = _f(r.get("days_to_earnings"))
+        return d is not None and 0 <= d <= earnings_blackout
+
     def events(pred):
-        idx = [i for i in range(n) if pred(rows[i])]
+        idx = [i for i in range(n) if pred(rows[i]) and not _near_earnings(rows[i])]
         res = {}
         for h in HORIZONS:
             vals = [fr[i][h] for i in idx if fr[i][h] is not None]
@@ -105,6 +111,8 @@ def main(argv=None):
     ap.add_argument("--journal", default="logs/whale_journal.csv")
     ap.add_argument("--min-events", type=int, default=5,
                     help="events needed before an edge number is printed")
+    ap.add_argument("--earnings-blackout", type=int, default=7,
+                    help="exclude signal events within this many days of earnings (0 to disable)")
     args = ap.parse_args(argv)
 
     try:
@@ -120,7 +128,7 @@ def main(argv=None):
           "positive after capitulation / negative after euphoria would confirm the fade thesis\n")
 
     for t in sorted(by_ticker):
-        report, n = evaluate(by_ticker[t], args.min_events)
+        report, n = evaluate(by_ticker[t], args.min_events, args.earnings_blackout)
         print(f"── {t} ({n} logged days)")
         for sig, (total, lines) in report.items():
             print(f"   {sig:<13} events={total:<3} "

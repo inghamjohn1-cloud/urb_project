@@ -167,6 +167,10 @@ def watchlist_card(journal_path: str) -> str:
             return f'<span class="wchip wup">🟢 CAPITULATION {zs}</span>'
         return f'<span class="wchip wna">normal {zs}</span>'
 
+    def warn_chip(days, edate):
+        note = f" ({edate})" if edate else ""
+        return f'<span class="wchip wwarn">⚠️ EARNINGS IN {int(days)}d{note}</span>'
+
     def gex_chip(g):
         if g is None:
             return '<span class="wchip wna">n/a</span>'
@@ -186,14 +190,28 @@ def watchlist_card(journal_path: str) -> str:
             dp_cell = '<span class="wchip wna">none today</span>'
         else:
             dp_cell = '<span class="wchip wna">awaiting first fetch</span>'
+
+        days_to_e = num(r.get("days_to_earnings"))
+        edate = r.get("earnings_date", "")
+        if days_to_e is not None and 0 <= days_to_e <= 7:
+            flow_cell = warn_chip(days_to_e, edate)
+        else:
+            flow_cell = state_chip(r.get("flow_state"), num(r.get("flow_z")))
+
+        if days_to_e is not None and days_to_e <= 60:
+            earn_cell = f'<span class="wchip wwarn">{int(days_to_e)}d — {edate}</span>' if days_to_e <= 14 else f'<span class="wchip wna">{int(days_to_e)}d</span>'
+        else:
+            earn_cell = '<span class="wchip wna">—</span>'
+
         body.append(f"""
         <tr>
           <td class="l"><span class="tk">{_html.escape(r['ticker'])}</span></td>
           <td class="tnum">{num(r.get('close')):.2f}</td>
           {pct(num(r.get('ret_21d')))}{pct(num(r.get('ret_63d')))}
-          <td>{state_chip(r.get('flow_state'), num(r.get('flow_z')))}</td>
+          <td>{flow_cell}</td>
           <td>{gex_chip(num(r.get('gex_net_gamma')))}</td>
           <td class="tnum">{dp_cell}</td>
+          <td>{earn_cell}</td>
         </tr>""")
     asof = max(r["date"] for r in latest.values())
     return f"""
@@ -203,16 +221,18 @@ def watchlist_card(journal_path: str) -> str:
   .wchip.wup{{color:var(--good-ink);border-color:var(--good-ink)}}
   .wchip.wdn{{color:var(--crit);border-color:var(--crit)}}
   .wchip.wna{{color:var(--ink-2)}}
+  .wchip.wwarn{{color:#b45309;border-color:#b45309}}
   </style>
   <div class="card">
     <h2>Whale watchlist — forward test (as of {_html.escape(asof)})</h2>
     <div class="scroll"><table>
       <thead><tr><th class="l">Ticker</th><th>Close</th><th>21d</th><th>63d</th>
-        <th class="l">Options flow</th><th class="l">Dealer gamma</th><th>Dark pool</th></tr></thead>
+        <th class="l">Options flow</th><th class="l">Dealer gamma</th><th>Dark pool</th><th>Earnings</th></tr></thead>
       <tbody>{"".join(body)}</tbody>
     </table></div>
     <div class="empty">🟢 capitulation = your buy-watch condition · 🔥 euphoria = not a buy day ·
-    NEG gamma = dealers amplify moves. Signals under forward test — not proven, not advice.</div>
+    NEG gamma = dealers amplify moves · ⚠️ earnings &lt;7 days = flow is hedging noise, not signal.
+    Signals under forward test — not proven, not advice.</div>
   </div>
 """
 
