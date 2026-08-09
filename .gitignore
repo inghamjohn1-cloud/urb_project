@@ -7,3 +7,6 @@ data/
 dashboard.html
 artifact_dashboard.html
 darkpool.html
+
+# raw API payloads for the historical study (~60MB, regenerable)
+data/study/raw/
