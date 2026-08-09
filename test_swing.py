@@ -911,5 +911,111 @@ class TestOptionsSizing(unittest.TestCase):
                  c.tier, c.direction, c.entry, c.stop, c.target1, c.shares)
         self.assertEqual(before, after)
 
+
+class TestAffordabilityFilter(unittest.TestCase):
+    """Price filter: reject names that cannot carry a worthwhile spread."""
+
+    def _cand(self, price, atr, tier="B", direction="long"):
+        """Synthetic candidate at a chosen price/ATR, scoring untouched."""
+        tech = ind.snapshot(make_candles(300, drift=0.0015, last_volume_mult=1.6))
+        flow = aggregate([bought("call", premium=2.5e6, strike=110.0, dte=35)])
+        c = build_candidate(flow, tech, {"has_data": False}, today=TODAY)
+        c.tier, c.direction = tier, direction
+        c.entry = price
+        c.tech = dict(c.tech, atr=atr, last=price)
+        r = 1.5 * atr
+        c.stop = price - r if direction == "long" else price + r
+        c.target1 = price + 2 * r if direction == "long" else price - 2 * r
+        return c
+
+    # -- the width floor ---------------------------------------------------
+    def test_min_width_scales_with_expected_move(self):
+        narrow = opt.min_practical_width(10.0, 1.0, target_width=100.0)
+        wide = opt.min_practical_width(50.0, 1.0, target_width=100.0)
+        self.assertGreater(wide, narrow, "more volatile name needs more width")
+
+    def test_min_width_never_exceeds_the_2r_target(self):
+        w = opt.min_practical_width(100.0, 1.0, target_width=4.0)
+        self.assertLessEqual(w, 4.0, "never demand more width than the thesis")
+
+    def test_min_width_is_at_least_one_increment(self):
+        self.assertGreaterEqual(opt.min_practical_width(0.01, 2.5, 100.0), 2.5)
+
+    def test_width_floor_delivers_the_configured_reward_risk(self):
+        em, inc = 20.0, 0.5
+        w = opt.min_practical_width(em, inc, target_width=1e9)
+        frac = opt.debit_fraction(w, em)
+        rr = (1 - frac) / frac
+        self.assertGreaterEqual(rr, OPTIONS["min_reward_risk"] - 0.15)
+
+    # -- the filter itself -------------------------------------------------
+    def test_expensive_underlying_is_filtered_on_a_small_account(self):
+        p = opt.plan_spread(self._cand(1200.0, 42.0), TODAY, 5_000.0)
+        self.assertFalse(p.tradeable)
+        self.assertEqual(p.status, "unaffordable")
+        self.assertIn("needs $", p.reason)
+
+    def test_cheap_low_volatility_underlying_survives(self):
+        p = opt.plan_spread(self._cand(25.0, 0.6), TODAY, 5_000.0)
+        self.assertTrue(p.tradeable, p.reason)
+        self.assertEqual(p.status, "planned")
+
+    def test_same_name_becomes_affordable_on_a_bigger_account(self):
+        small = opt.plan_spread(self._cand(1200.0, 42.0), TODAY, 5_000.0)
+        big = opt.plan_spread(self._cand(1200.0, 42.0), TODAY, 500_000.0)
+        self.assertFalse(small.tradeable)
+        self.assertTrue(big.tradeable, big.reason)
+
+    def test_filter_reports_the_shortfall_not_just_a_refusal(self):
+        p = opt.plan_spread(self._cand(1200.0, 42.0), TODAY, 5_000.0)
+        self.assertIsNotNone(p.required_budget)
+        self.assertIsNotNone(p.min_width)
+        self.assertGreater(p.required_budget, p.budget,
+                           "required must exceed budget for a rejection")
+
+    def test_surviving_spreads_meet_the_reward_risk_floor(self):
+        """The whole point: no more 1.03:1 structures sneaking through."""
+        for price, atr in ((25.0, 0.6), (48.0, 1.2), (90.0, 2.0), (140.0, 3.0)):
+            for acct in (5_000.0, 25_000.0, 100_000.0):
+                p = opt.plan_spread(self._cand(price, atr), TODAY, acct)
+                if p.tradeable:
+                    self.assertGreaterEqual(
+                        p.reward_risk, OPTIONS["min_reward_risk"] - 0.15,
+                        f"{price}/{atr}/{acct} gave R:R {p.reward_risk}")
+
+    def test_no_spread_narrower_than_the_floor_is_ever_built(self):
+        for price, atr in ((25.0, 0.6), (48.0, 1.2), (140.0, 3.0)):
+            p = opt.plan_spread(self._cand(price, atr), TODAY, 8_000.0)
+            if p.tradeable:
+                self.assertGreaterEqual(p.width, p.min_width - 1e-9)
+
+    def test_filtered_names_carry_no_risk(self):
+        p = opt.plan_spread(self._cand(1200.0, 42.0), TODAY, 5_000.0)
+        self.assertEqual(p.contracts, 0)
+        self.assertEqual(p.max_risk, 0.0)
+
+    # -- reporting ---------------------------------------------------------
+    def test_render_labels_filtered_names_visibly(self):
+        cands = [self._cand(1200.0, 42.0), self._cand(25.0, 0.6)]
+        plans = opt.plan_all(cands, TODAY, 5_000.0)
+        text = opt.render(cands, plans)
+        self.assertIn("FILTERED OUT", text)
+        self.assertIn("FILTERED (price)", text)
+
+    def test_render_handles_nothing_being_tradeable(self):
+        cands = [self._cand(1200.0, 42.0)]
+        plans = opt.plan_all(cands, TODAY, 5_000.0)
+        text = opt.render(cands, plans)
+        self.assertIn("no candidate could carry", text)
+
+    # -- scoring untouched -------------------------------------------------
+    def test_filtering_does_not_change_the_score(self):
+        c = self._cand(1200.0, 42.0)
+        before = (c.score, c.tier, c.flow_score, c.dp_score, c.tech_score)
+        opt.plan_spread(c, TODAY, 5_000.0)
+        self.assertEqual(before, (c.score, c.tier, c.flow_score, c.dp_score,
+                                  c.tech_score))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -195,8 +195,17 @@ OPTIONS = {
     "min_width_increments": 1,      # never narrower than one strike increment
     "trading_days_per_year": 252,
 
-    # Quality floors for the constructed spread.
-    "min_reward_risk": 1.0,         # (width - debit) / debit
+    # Quality floors for the constructed spread. These are GATES, not notes:
+    # a spread narrow enough to be affordable but too narrow to pay is not a
+    # trade, it is a fee. R:R = (1 - debit/width) / (debit/width), and
+    # debit/width falls as width grows, so the floor below is really a floor
+    # on width — expressed in expected moves so it scales with volatility.
+    #
+    #   0.50 expected moves -> debit ~40% of width -> R:R ~1.5
+    #   0.25 expected moves -> debit ~45% of width -> R:R ~1.2
+    #   0.00 (ATM, minimum) -> debit  50% of width -> R:R  1.0
+    "min_reward_risk": 1.5,
+    "min_width_expected_moves": 0.5,
     "max_debit_pct_of_width": 0.60, # above this you are paying too much
     "contract_multiplier": 100,
 
