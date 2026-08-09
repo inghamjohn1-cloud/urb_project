@@ -137,17 +137,17 @@ TIERS = [
 MIN_SCORE = 55.0   # below this the candidate is dropped entirely
 
 # ---------------------------------------------------------------------------
-# >>> SET YOUR REAL ACCOUNT SIZE HERE <<<
+# >>> YOUR ACCOUNT SIZE LIVES ON THE NEXT LINE <<<
 #
-# This is a PLACEHOLDER. Until you replace it, every "Sh" (share count) and
-# "budget" figure the scanner prints is illustrative only — the entry, stop and
-# target prices are unaffected, but the size next to them is not yours.
+# This single number drives every "Sh" (share count) and "budget" figure the
+# scanner prints. Entry, stop and target prices do NOT depend on it — only the
+# size shown next to them. Edit this one line and nothing else; the RISK block
+# below reads from it.
 #
-# Replace the number below with your actual account equity, e.g.:
-#     ACCOUNT_SIZE = 250_000.0
-# Nothing else needs to change; RISK["account_size"] reads from it.
-ACCOUNT_SIZE = 100_000.0        # <-- PLACEHOLDER: change this one line
-ACCOUNT_SIZE_IS_PLACEHOLDER = True   # <-- set to False once the line above is yours
+#     ACCOUNT_SIZE = 5_000.0        <- small account
+#     ACCOUNT_SIZE = 250_000.0      <- larger account
+ACCOUNT_SIZE = 5_000.0          # <-- YOUR REAL ACCOUNT SIZE GOES HERE
+ACCOUNT_SIZE_IS_PLACEHOLDER = False  # <-- True while the line above is still a guess
 # ---------------------------------------------------------------------------
 
 RISK = {
