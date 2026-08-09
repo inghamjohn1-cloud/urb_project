@@ -1,4 +1,8 @@
-# The scanner uses only the Python standard library (urllib, json, csv).
-# No third-party packages are required to run scan.py.
+# The scanner itself (scan.py, backtest.py, dashboard.py) uses only the Python
+# standard library (urllib, json, csv) — no third-party packages required.
+#
+# The webhook backend (server.py) needs these:
+fastapi>=0.115
+uvicorn[standard]>=0.30
 #
 # Python 3.10+ is required (uses X | None type syntax).

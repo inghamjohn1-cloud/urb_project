@@ -219,6 +219,48 @@ price/momentum/trend only. To fold in the whale conviction, type each sector's
 conviction (−1..+1, read off the dashboard) into the script's "Whale conviction"
 inputs and set a whale weight; leave them 0 to ignore.
 
+## Webhook backend
+
+`server.py` is a FastAPI service that receives TradingView alert webhooks. It is
+the entry point for turning on-chart alerts into scanner input — right now it
+validates each alert and prints it to the terminal.
+
+Unlike the scanner scripts, it needs third-party packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run it:
+
+```bash
+uvicorn server:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Then point a TradingView alert's *Webhook URL* at
+`http://localhost:8000/api/tv-webhook` and set the alert message to JSON:
+
+```json
+{"ticker": "{{ticker}}", "condition": "RSI_Oversold", "price": {{close}}}
+```
+
+TradingView only reaches public URLs, so for live alerts expose the port with a
+tunnel (`cloudflared tunnel --url http://localhost:8000`, ngrok, etc.) and use
+the tunnel's hostname. To test locally without one:
+
+```bash
+curl -X POST http://localhost:8000/api/tv-webhook \
+  -H "Content-Type: application/json" \
+  -d '{"ticker": "TSLA", "condition": "RSI_Oversold", "price": 225.50}'
+```
+
+`ticker`, `condition`, and `price` are required; `ticker` is upper-cased and
+`price` must be positive. Any extra keys you add to the alert message
+(`{{interval}}`, `{{exchange}}`, ...) are kept and printed. A malformed body
+returns 400, a body that fails validation returns 422 with the offending
+fields. `GET /health` is there to confirm the tunnel is up, and interactive API
+docs are at `http://localhost:8000/docs`.
+
 ## Automated morning Routine
 
 A scheduled Routine regenerates the dashboard **every trading weekday at
@@ -266,6 +308,7 @@ updated.
 | `whale.py`    | Smart-money conviction from Unusual Whales sector data (flow + accumulation) |
 | `darkpool.py` | Per-ETF dark-pool block-print view (count, premium, largest block, lean) |
 | `pine/sector_rotation.pine` | TradingView Pine v6 indicator — ranking, signals, ATR levels, alerts |
+| `server.py`   | FastAPI backend — receives and validates TradingView alert webhooks |
 | `to_artifact.py` | Strips a dashboard HTML to Artifact body-content for hosting on claude.ai |
 | `render_from_mcp.py`| Alternative renderer — dashboard from Unusual Whales MCP files (flow column) |
 | `collect_mcp_data.py`| Gathers Unusual Whales MCP tool-result files into a data dir |
