@@ -54,6 +54,7 @@ partially fail its way onto your screen.
 | 30-day ADV | ≥ 1,000,000 shares | You need to get out too |
 | Dollar volume | ≥ $25M/day | The real liquidity test |
 | Option spread | ≤ 15% of mid | A wide chain eats the edge before you start |
+| **Price history** | **≥ 250 bars** | A 200 EMA seeded at bar 200 *is* the 200 SMA; 250 gives a quarter of smoothing past the seed. Without it the trend-conflict veto silently skips |
 | **ATR (dollars)** | **≤ $4.00** | Small-account options screen — see below |
 | **Price** | **≤ $150** | Small-account options screen — see below |
 
@@ -139,10 +140,20 @@ A DTE haircut applies outside 21–60 days (×0.90 short-dated, ×0.95 long-date
 | Lean | 5 | Premium-weighted price vs NBBO mid, signed to the trade direction |
 | Single block | 3 | One print ≥ $10M |
 
-**No dark-pool data scores 0 — never negative.** A quiet off-exchange tape is
-absence of evidence, not evidence of distribution. The name carries a
-`no dark-pool confirmation` flag so you know the difference. If the lean actively
-*opposes* the options flow, that's noted explicitly.
+**Absence and contradiction score differently — three states, not two.**
+
+| Dark-pool state | Score | Flag |
+|---|---|---|
+| No blocks | 0 | `no dark-pool confirmation` |
+| Blocks aligned with the flow | up to +15 | note names the accumulation/distribution |
+| Blocks leaning **against** the flow | down to **−5** | `dark pool opposing (lean …)` |
+
+A quiet off-exchange tape is absence of evidence, not evidence of distribution,
+so it stays at 0. Blocks moving *against* the options bet are evidence, so the
+lean term is symmetric in [−5, +5] and a contradicted name ranks **below** an
+unconfirmed one. The penalty is proportional and deliberately not a veto: a
+strong footprint (7) plus a big single block (3) can still carry a fully opposed
+lean to a net +5.
 
 **Technical confluence (35)** — long-side; mirrored for shorts
 

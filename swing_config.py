@@ -118,6 +118,14 @@ TECHNICAL = {
     "near_high_pct": 0.10,           # within 10% of the 52-week high
     "breakout_lookback": 20,         # 20-day high/low structure break
     "history_days": 400,             # bars to request (need 200 EMA + buffer)
+
+    # Hard floor on usable history. A 200-period EMA seeded at bar 200 IS the
+    # 200 SMA — a different indicator — and only becomes an EMA as the seed
+    # decays. 250 bars gives ~50 sessions (one quarter) of smoothing past the
+    # seed. Below this the trend read, and therefore the trend-conflict veto,
+    # is not trustworthy, so the name is rejected rather than scored on a
+    # trend nobody can verify.
+    "min_bars_for_trend": 250,
 }
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ import unittest
 
 import swing_indicators as ind
 import swing_flow as fl
-from swing_config import UNIVERSE
+from swing_config import UNIVERSE, TECHNICAL
 from swing_score import (
     build_candidate, check_gates, check_options_universe, score_flow,
     score_technical, score_darkpool, assign_tier, rank,
@@ -1133,6 +1133,165 @@ class TestOptionsUniverse(unittest.TestCase):
         self.assertTrue(c.rejected)
         self.assertIn("ceiling", c.rejected)
         self.assertIsNone(c.entry)
+        self.assertEqual(c.score, 0.0)
+
+
+class TestOpposingDarkPoolPenalty(unittest.TestCase):
+    """Contradicting blocks subtract; absent blocks stay neutral."""
+
+    def _dp(self, price, bid=100.0, ask=101.0, n=5, prem=5e6, size=100_000):
+        return fl.aggregate_darkpool(
+            [{"premium": prem, "size": size, "price": price,
+              "nbbo_bid": bid, "nbbo_ask": ask}] * n, 5_000_000)
+
+    def test_opposing_lean_now_subtracts(self):
+        """Was 0 (neutral); must now be a real penalty."""
+        against = self._dp(100.1)              # near the bid = distribution
+        pts, notes = score_darkpool(against, "long")
+        self.assertLess(pts, 7.0, "footprint alone would have scored 7")
+        self.assertTrue(any("OPPOSES" in n for n in notes))
+
+    def test_penalty_is_proportional_to_the_opposition(self):
+        mild = score_darkpool(self._dp(100.4), "long")[0]     # slightly below mid
+        severe = score_darkpool(self._dp(100.0), "long")[0]   # at the bid
+        self.assertGreater(mild, severe)
+
+    def test_penalty_is_symmetric_with_the_reward(self):
+        """+/-5 either way: the lean term mirrors."""
+        acc = self._dp(101.0)   # at the ask
+        dis = self._dp(100.0)   # at the bid
+        long_acc = score_darkpool(acc, "long")[0]
+        long_dis = score_darkpool(dis, "long")[0]
+        self.assertAlmostEqual(long_acc - long_dis, 10.0, places=1)
+
+    def test_aligned_lean_is_unaffected_by_the_change(self):
+        """Accumulation into a long still earns the full footprint + lean."""
+        pts, notes = score_darkpool(self._dp(100.9), "long")
+        self.assertGreater(pts, 7.0)
+        self.assertTrue(any("accumulation" in n for n in notes))
+
+    def test_neutral_lean_is_unaffected(self):
+        """A print exactly at the mid neither earns nor costs."""
+        mid = self._dp(100.5)
+        self.assertAlmostEqual(mid["lean"], 0.0, places=6)
+        pts, _ = score_darkpool(mid, "long")
+        self.assertAlmostEqual(pts, 7.0, places=1)
+
+    def test_absent_data_is_still_zero_not_negative(self):
+        """Absence must never be confused with contradiction."""
+        pts, notes = score_darkpool({"has_data": False, "n_blocks": 0}, "long")
+        self.assertEqual(pts, 0.0)
+        self.assertIn("no dark-pool blocks", notes)
+
+    def test_contradicted_ranks_below_unconfirmed(self):
+        """The whole point of allowing a negative component."""
+        contradicted = score_darkpool(
+            self._dp(100.0, prem=2e6, size=10_000), "long")[0]
+        unconfirmed = score_darkpool({"has_data": False, "n_blocks": 0}, "long")[0]
+        self.assertLess(contradicted, unconfirmed)
+
+    def test_penalty_is_not_a_veto(self):
+        """Strong footprint + big block survives a fully opposed lean."""
+        strong = fl.aggregate_darkpool(
+            [{"premium": 5e7, "size": 500_000, "price": 100.0,
+              "nbbo_bid": 100.0, "nbbo_ask": 101.0}] * 5, 5_000_000)
+        pts, _ = score_darkpool(strong, "long")
+        self.assertGreater(pts, 0.0, "footprint and block still count")
+
+    def test_component_floor_is_minus_five(self):
+        weak = fl.aggregate_darkpool(
+            [{"premium": 1.1e6, "size": 100, "price": 100.0,
+              "nbbo_bid": 100.0, "nbbo_ask": 101.0}], 5_000_000)
+        pts, _ = score_darkpool(weak, "long")
+        self.assertGreaterEqual(pts, -5.0)
+
+    def test_short_side_opposition_is_mirrored(self):
+        """Accumulation opposes a SHORT."""
+        acc = self._dp(100.9)
+        pts, notes = score_darkpool(acc, "short")
+        self.assertLess(pts, 7.0)
+        self.assertTrue(any("accumulating against bearish flow" in n for n in notes))
+
+    def test_candidate_carries_an_opposing_flag(self):
+        tech = ind.snapshot(make_candles(300, drift=0.0015, last_volume_mult=1.6))
+        flow = aggregate([bought("call", premium=3e6, dte=35)])
+        c = build_candidate(flow, tech, self._dp(100.0), today=TODAY)
+        self.assertTrue(any("opposing" in f for f in c.flags),
+                        f"expected an opposing flag, got {c.flags}")
+
+    def test_aligned_candidate_has_no_opposing_flag(self):
+        tech = ind.snapshot(make_candles(300, drift=0.0015, last_volume_mult=1.6))
+        flow = aggregate([bought("call", premium=3e6, dte=35)])
+        c = build_candidate(flow, tech, self._dp(100.9), today=TODAY)
+        self.assertFalse(any("opposing" in f for f in c.flags))
+
+
+class TestMinimumHistoryGate(unittest.TestCase):
+    """Names without enough bars to trust the 200 EMA never reach scoring."""
+
+    def _flow(self):
+        return aggregate([bought("call", premium=3e6, dte=35)])
+
+    def test_configured_floor(self):
+        self.assertEqual(TECHNICAL["min_bars_for_trend"], 250)
+
+    def test_short_history_is_rejected(self):
+        tech = ind.snapshot(make_candles(60, drift=0.0015))
+        reason = check_gates(self._flow(), tech, today=TODAY)
+        self.assertIn("insufficient history", reason)
+
+    def test_rejection_names_the_shortfall(self):
+        tech = ind.snapshot(make_candles(60, drift=0.0015))
+        reason = check_gates(self._flow(), tech, today=TODAY)
+        self.assertIn("60 bars", reason)
+        self.assertIn("250", reason)
+
+    def test_just_below_the_floor_is_rejected(self):
+        tech = ind.snapshot(make_candles(249, drift=0.0015))
+        self.assertIn("insufficient history",
+                      check_gates(self._flow(), tech, today=TODAY))
+
+    def test_at_the_floor_is_accepted(self):
+        tech = ind.snapshot(make_candles(250, drift=0.0015))
+        self.assertEqual(check_gates(self._flow(), tech, today=TODAY), "")
+
+    def test_ample_history_is_accepted(self):
+        tech = ind.snapshot(make_candles(300, drift=0.0015))
+        self.assertEqual(check_gates(self._flow(), tech, today=TODAY), "")
+
+    def test_missing_200_ema_is_rejected_even_if_bars_unreported(self):
+        """The hole this closes: the trend veto silently skips without an EMA."""
+        tech = {"last": 100.0, "atr": 2.0, "avg_volume": 5e6, "ema_slow": None}
+        reason = check_gates(self._flow(), tech, today=TODAY)
+        self.assertIn("insufficient history", reason)
+        self.assertIn("trend cannot be verified", reason)
+
+    def test_gate_runs_before_scoring(self):
+        tech = ind.snapshot(make_candles(60, drift=0.0015))
+        c = build_candidate(self._flow(), tech, {"has_data": False}, today=TODAY)
+        self.assertIn("insufficient history", c.rejected)
+        self.assertEqual(c.score, 0.0)
+        self.assertEqual(c.flow_score, 0.0)
+        self.assertIsNone(c.entry)
+
+    def test_short_history_cannot_slip_past_the_trend_veto(self):
+        """A 60-bar downtrend with bullish flow must be rejected for history,
+        not accidentally admitted because the 200 EMA was unavailable."""
+        tech = ind.snapshot(make_candles(60, drift=-0.0015))
+        self.assertIsNone(tech["ema_slow"])
+        reason = check_gates(self._flow(), tech, today=TODAY)
+        self.assertIn("insufficient history", reason)
+
+    def test_empty_tech_is_rejected_for_missing_history(self):
+        """Regression: the flow payload carries its own underlying_price, so
+        an empty tech dict used to satisfy the price gate and then skip the
+        trend veto — priced by the alert, trend-checked by nothing."""
+        reason = check_gates(self._flow(), {}, today=TODAY)
+        self.assertIn("insufficient history", reason)
+
+    def test_no_chart_data_never_reaches_scoring(self):
+        c = build_candidate(self._flow(), {}, {"has_data": False}, today=TODAY)
+        self.assertTrue(c.rejected)
         self.assertEqual(c.score, 0.0)
 
 

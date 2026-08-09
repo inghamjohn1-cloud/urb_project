@@ -7,8 +7,11 @@ Two principles run through the whole module:
   1. Gates are separate from scores. A name that fails a hard gate is dropped
      with a stated reason — it never gets a partial score that might tempt you
      into taking it anyway.
-  2. Missing data scores 0, never negative. No dark-pool prints means "no
-     confirmation", not "distribution". The report labels the difference.
+  2. Absence and contradiction are not the same thing. MISSING data scores 0:
+     no dark-pool prints means "no confirmation", not "distribution".
+     CONTRADICTING data subtracts: blocks leaning against the options flow are
+     evidence, so the dark-pool component runs [-5, +15] and a contradicted
+     name ranks below an unconfirmed one. The report labels all three states.
 """
 
 from __future__ import annotations
@@ -99,6 +102,23 @@ def check_gates(flow: dict, tech: dict, allow_earnings: bool = False,
     reason = check_options_universe(flow, tech)
     if reason:
         return reason
+
+    # Enough history to trust the trend? This runs before everything else that
+    # depends on the 200 EMA — without it the trend-conflict veto below would
+    # silently skip, letting a freshly-listed name through on a trend that was
+    # never actually computed.
+    min_bars = TECHNICAL.get("min_bars_for_trend")
+    bars = tech.get("bars")
+    if min_bars is not None and bars is not None and bars < min_bars:
+        return (f"insufficient history: {bars} bars, need {min_bars} for a "
+                f"reliable {TECHNICAL['ema_slow']} EMA")
+    # Resolve the price the same way the checks below do: the flow payload
+    # carries an underlying_price, so an empty tech dict would otherwise sail
+    # through every gate — priced by the alert, trend-checked by nothing.
+    if (tech.get("last") or flow.get("underlying_price")) is not None \
+            and tech.get("ema_slow") is None:
+        return (f"insufficient history: no {TECHNICAL['ema_slow']} EMA — "
+                f"trend cannot be verified")
 
     if flow["total_premium"] < FLOW["min_ticker_premium"]:
         return f"ticker premium ${flow['total_premium']:,.0f} < ${FLOW['min_ticker_premium']:,.0f}"
@@ -228,6 +248,19 @@ def score_darkpool(dp: dict, direction: str) -> tuple[float, list[str]]:
 
     Scored points require the blocks to agree with the flow's direction:
     accumulation confirms longs, distribution confirms shorts.
+
+    Absence and contradiction are different things and score differently. No
+    blocks at all is 0 — a quiet off-exchange tape is not evidence either way.
+    Blocks leaning AGAINST the options flow is evidence, and it subtracts: the
+    lean term is symmetric in [-5, +5], so institutions distributing into a
+    bullish options bet cost the candidate real points rather than merely
+    failing to earn them. The component floor is -5, not 0, so a contradicted
+    name ranks below an unconfirmed one.
+
+    The penalty is proportional and deliberately not a veto: a strong footprint
+    (7) plus a big single block (3) can still carry a fully opposed lean to a
+    net +5. Dark-pool prints are a fragment of the tape, and a vertical that
+    prints below the mid is not always distribution.
     """
     if not dp.get("has_data") or not dp.get("n_blocks"):
         return 0.0, ["no dark-pool blocks"]
@@ -244,22 +277,27 @@ def score_darkpool(dp: dict, direction: str) -> tuple[float, list[str]]:
             notes.append(f"blocks = {pct:.0%} of ADV")
 
     # Execution lean vs the NBBO midpoint, signed to the trade direction.
+    # Symmetric: agreement earns, opposition costs, both proportionally.
     lean = dp.get("lean")
     if lean is not None:
         aligned = lean if direction == "long" else -lean
-        pts += 5.0 * _clamp(aligned, 0.0, 1.0)
+        lean_pts = 5.0 * _clamp(aligned, -1.0, 1.0)
+        pts += lean_pts
         if aligned >= 0.3:
             notes.append("blocks above mid (accumulation)" if direction == "long"
                          else "blocks below mid (distribution)")
         elif aligned <= -0.3:
-            notes.append("dark-pool lean opposes the options flow")
+            notes.append(
+                f"dark-pool lean OPPOSES the options flow ({lean_pts:+.1f} pts) — "
+                + ("blocks distributing into bullish flow" if direction == "long"
+                   else "blocks accumulating against bearish flow"))
 
     # A single outsized print carries information on its own.
     if dp.get("biggest_block", 0) >= DARKPOOL["strong_block_premium"]:
         pts += 3.0
         notes.append(f"${dp['biggest_block'] / 1e6:.0f}M single block")
 
-    return _clamp(pts, 0.0, WEIGHTS["darkpool"]), notes
+    return _clamp(pts, -5.0, WEIGHTS["darkpool"]), notes
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +558,12 @@ def build_candidate(flow: dict, tech: dict, dp: dict,
             c.flags.append(f"earnings in {days}d")
     if not dp.get("has_data"):
         c.flags.append("no dark-pool confirmation")
+    else:
+        lean = dp.get("lean")
+        if lean is not None:
+            aligned = lean if c.direction == "long" else -lean
+            if aligned <= -0.3:
+                c.flags.append(f"dark pool opposing (lean {aligned:+.2f})")
     if flow["coherence"] < 0.3:
         c.flags.append("two-way flow")
     # A name whose premium mostly printed between the quotes had its direction
