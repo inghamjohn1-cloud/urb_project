@@ -161,6 +161,61 @@ RISK = {
     "min_reward_risk": 2.0,         # skip anything that can't pay 2R
 }
 
+# ---------------------------------------------------------------------------
+# 7. Defined-risk options sizing (swing_options.py).
+#
+#    An ALTERNATIVE to the share sizing in RISK above — nothing here feeds the
+#    scoring engine. Scores, gates, tiers and direction are computed exactly as
+#    before; this block only decides how a scored candidate is expressed as a
+#    vertical debit spread.
+#
+#    Long candidate  -> bull call spread (buy lower strike, sell higher)
+#    Short candidate -> bear put spread  (buy higher strike, sell lower)
+#
+#    Max loss is the net debit, known at entry, so the risk percentages are
+#    higher than the stop-based share model: a stop can gap, a debit cannot.
+# ---------------------------------------------------------------------------
+OPTIONS = {
+    "enabled": True,
+    "structure": "vertical_debit",
+
+    # Risk per idea as a fraction of ACCOUNT_SIZE. Max loss = net debit.
+    "risk_pct_by_tier": {"A": 0.05, "B": 0.03, "C": 0.0},
+    "max_concurrent": 3,            # options need watching; fewer than shares
+    "max_total_risk_pct": 0.12,     # all open debits combined
+
+    # Expiration: nearest monthly inside this window (monthlies = liquidity).
+    "target_dte": 30,
+    "min_dte": 21,
+    "max_dte": 45,
+
+    # Width is anchored to the scanner's own 2R target so max profit lands
+    # where the share model would take its first scale.
+    "width_basis": "target1",
+    "min_width_increments": 1,      # never narrower than one strike increment
+    "trading_days_per_year": 252,
+
+    # Quality floors for the constructed spread.
+    "min_reward_risk": 1.0,         # (width - debit) / debit
+    "max_debit_pct_of_width": 0.60, # above this you are paying too much
+    "contract_multiplier": 100,
+
+    # Chain liquidity rules — verify on the live chain before entering.
+    "min_open_interest": 500,
+    "max_bid_ask_pct": 0.10,
+}
+
+# Strike increments by underlying price — used to round the spread width to
+# strikes that actually exist. Adjust if your broker's chain differs.
+STRIKE_INCREMENTS = [
+    (25.0, 0.5),
+    (50.0, 1.0),
+    (200.0, 2.5),
+    (500.0, 5.0),
+    (1000.0, 10.0),
+    (float("inf"), 20.0),
+]
+
 # Earnings inside the hold window turn a swing into a binary event bet.
 EARNINGS = {
     "block_if_within_days": 12,     # roughly the expected hold period

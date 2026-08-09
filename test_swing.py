@@ -764,5 +764,152 @@ class TestEndToEnd(unittest.TestCase):
         self.assertIsNone(c.entry)
 
 
+
+
+# ---------------------------------------------------------------------------
+# Defined-risk options sizing (swing_options.py)
+# ---------------------------------------------------------------------------
+import swing_options as opt
+from swing_config import OPTIONS
+
+
+class TestOptionsSizing(unittest.TestCase):
+    """The spread builder. Scoring is untouched — these only test sizing."""
+
+    def _cand(self, tier="B", direction="long"):
+        tech = ind.snapshot(make_candles(300, drift=0.0015, last_volume_mult=1.6))
+        flow = aggregate([bought("call", premium=2.5e6, strike=110.0, dte=35),
+                          bought("call", premium=1.5e6, strike=115.0, dte=45, day_offset=1)])
+        c = build_candidate(flow, tech, {"has_data": False}, today=TODAY)
+        c.tier, c.direction = tier, direction
+        return c
+
+    # -- debit model -------------------------------------------------------
+    def test_debit_fraction_limits(self):
+        # An infinitely narrow ATM vertical costs half its width (delta 0.5).
+        self.assertAlmostEqual(opt.debit_fraction(1e-6, 1.0), 0.5, places=3)
+        # One expected move wide is ~0.32; two is ~0.20. Monotonically falling.
+        self.assertAlmostEqual(opt.debit_fraction(1.0, 1.0), 0.3156, places=3)
+        self.assertAlmostEqual(opt.debit_fraction(2.0, 1.0), 0.1952, places=3)
+        self.assertGreater(opt.debit_fraction(0.5, 1.0), opt.debit_fraction(1.5, 1.0))
+
+    def test_debit_fraction_never_exceeds_half_or_goes_negative(self):
+        for w in (0.01, 0.1, 1.0, 5.0, 50.0):
+            f = opt.debit_fraction(w, 1.0)
+            self.assertGreater(f, 0.0)
+            self.assertLessEqual(f, 0.5)
+
+    def test_debit_fraction_handles_degenerate_inputs(self):
+        self.assertEqual(opt.debit_fraction(0.0, 1.0), 0.5)
+        self.assertEqual(opt.debit_fraction(1.0, 0.0), 0.5)
+
+    # -- expiry ------------------------------------------------------------
+    def test_expiry_is_a_third_friday_inside_the_window(self):
+        d = opt.next_monthly_expiry(_dt.date(2026, 8, 9), 21, 45, 30)
+        self.assertEqual(d, _dt.date(2026, 9, 18))
+        self.assertEqual(d.weekday(), 4, "must be a Friday")
+        self.assertTrue(21 <= (d - _dt.date(2026, 8, 9)).days <= 45)
+
+    def test_expiry_window_can_be_empty(self):
+        self.assertIsNone(opt.next_monthly_expiry(_dt.date(2026, 8, 9), 1, 2, 1))
+
+    def test_strike_increments_scale_with_price(self):
+        self.assertEqual(opt.strike_increment(20.0), 0.5)
+        self.assertEqual(opt.strike_increment(48.0), 1.0)
+        self.assertEqual(opt.strike_increment(133.0), 2.5)
+        self.assertEqual(opt.strike_increment(427.0), 5.0)
+        self.assertEqual(opt.strike_increment(1185.0), 20.0)
+
+    # -- structure ---------------------------------------------------------
+    def test_long_candidate_gets_a_bull_call_spread(self):
+        p = opt.plan_spread(self._cand(direction="long"), TODAY, 100_000.0)
+        self.assertEqual(p.structure, "bull call spread")
+        self.assertTrue(p.tradeable, p.reason)
+        self.assertGreater(p.short_strike, p.long_strike, "long: sell the higher strike")
+        self.assertTrue(p.legs.endswith("C"))
+
+    def test_short_candidate_gets_a_bear_put_spread(self):
+        c = self._cand(direction="short")
+        c.target1 = c.entry - (c.target1 - c.entry)     # mirror the target
+        p = opt.plan_spread(c, TODAY, 100_000.0)
+        self.assertEqual(p.structure, "bear put spread")
+        self.assertLess(p.short_strike, p.long_strike, "short: sell the lower strike")
+        self.assertTrue(p.legs.endswith("P"))
+
+    def test_max_risk_never_exceeds_the_tier_budget(self):
+        for acct in (5_000.0, 25_000.0, 100_000.0):
+            for tier in ("A", "B"):
+                c = self._cand(tier=tier)
+                p = opt.plan_spread(c, TODAY, acct)
+                if p.tradeable:
+                    self.assertLessEqual(p.max_risk, opt.budget_for(tier, acct) + 1e-6)
+
+    def test_max_risk_equals_debit_times_contracts_times_multiplier(self):
+        p = opt.plan_spread(self._cand(), TODAY, 100_000.0)
+        self.assertAlmostEqual(p.max_risk, p.debit * 100 * p.contracts, places=2)
+
+    def test_max_profit_is_width_minus_debit(self):
+        p = opt.plan_spread(self._cand(), TODAY, 100_000.0)
+        self.assertAlmostEqual(p.max_profit, (p.width - p.debit) * 100 * p.contracts,
+                               places=2)
+
+    def test_a_tier_gets_more_budget_than_b_tier(self):
+        self.assertGreater(opt.budget_for("A", 5_000.0), opt.budget_for("B", 5_000.0))
+        self.assertEqual(opt.budget_for("C", 5_000.0), 0.0)
+
+    def test_c_tier_is_watchlist_only(self):
+        p = opt.plan_spread(self._cand(tier="C"), TODAY, 5_000.0)
+        self.assertFalse(p.tradeable)
+        self.assertEqual(p.contracts, 0)
+        self.assertIn("watchlist", p.reason)
+
+    def test_unaffordable_spread_reports_a_reason_not_zero_contracts(self):
+        """A tiny account must say why, not silently return nothing."""
+        p = opt.plan_spread(self._cand(), TODAY, 200.0)
+        self.assertFalse(p.tradeable)
+        self.assertIn("budget", p.reason)
+        self.assertEqual(p.contracts, 0)
+
+    def test_width_narrows_when_the_preferred_width_is_unaffordable(self):
+        big = opt.plan_spread(self._cand(), TODAY, 100_000.0)
+        small = opt.plan_spread(self._cand(), TODAY, 3_000.0)
+        if small.tradeable:
+            self.assertLessEqual(small.width, big.width)
+            if small.width < big.width:
+                self.assertTrue(any("narrowed" in n for n in small.notes))
+
+    # -- portfolio caps ----------------------------------------------------
+    def test_position_cap_is_enforced(self):
+        cands = [self._cand() for _ in range(6)]
+        plans = opt.plan_all(cands, TODAY, 100_000.0)
+        self.assertLessEqual(sum(1 for p in plans if p.tradeable),
+                             OPTIONS["max_concurrent"])
+        blocked = [p for p in plans if not p.tradeable and "cap" in p.reason]
+        self.assertTrue(blocked)
+
+    def test_total_risk_cap_is_enforced(self):
+        cands = [self._cand() for _ in range(6)]
+        plans = opt.plan_all(cands, TODAY, 100_000.0)
+        total = sum(p.max_risk for p in plans if p.tradeable)
+        self.assertLessEqual(total, 100_000.0 * OPTIONS["max_total_risk_pct"] + 1e-6)
+
+    def test_blocked_positions_carry_zero_risk(self):
+        cands = [self._cand() for _ in range(6)]
+        for p in opt.plan_all(cands, TODAY, 100_000.0):
+            if not p.tradeable:
+                self.assertEqual(p.max_risk, 0.0)
+                self.assertEqual(p.contracts, 0)
+                self.assertTrue(p.reason)
+
+    # -- the scoring engine must be untouched ------------------------------
+    def test_planning_does_not_mutate_the_candidate(self):
+        c = self._cand()
+        before = (c.score, c.flow_score, c.dp_score, c.tech_score, c.liq_score,
+                  c.tier, c.direction, c.entry, c.stop, c.target1, c.shares)
+        opt.plan_spread(c, TODAY, 5_000.0)
+        after = (c.score, c.flow_score, c.dp_score, c.tech_score, c.liq_score,
+                 c.tier, c.direction, c.entry, c.stop, c.target1, c.shares)
+        self.assertEqual(before, after)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
