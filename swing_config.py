@@ -136,8 +136,22 @@ TIERS = [
 ]
 MIN_SCORE = 55.0   # below this the candidate is dropped entirely
 
+# ---------------------------------------------------------------------------
+# >>> SET YOUR REAL ACCOUNT SIZE HERE <<<
+#
+# This is a PLACEHOLDER. Until you replace it, every "Sh" (share count) and
+# "budget" figure the scanner prints is illustrative only — the entry, stop and
+# target prices are unaffected, but the size next to them is not yours.
+#
+# Replace the number below with your actual account equity, e.g.:
+#     ACCOUNT_SIZE = 250_000.0
+# Nothing else needs to change; RISK["account_size"] reads from it.
+ACCOUNT_SIZE = 100_000.0        # <-- PLACEHOLDER: change this one line
+ACCOUNT_SIZE_IS_PLACEHOLDER = True   # <-- set to False once the line above is yours
+# ---------------------------------------------------------------------------
+
 RISK = {
-    "account_size": 100_000.0,      # used only to size the printed suggestion
+    "account_size": ACCOUNT_SIZE,   # used only to size the printed suggestion
     "risk_per_trade_pct": 0.0075,   # 0.75% of account risked per A-tier idea
     "b_tier_risk_multiplier": 0.5,
     "stop_atr_multiple": 1.5,       # initial stop distance
