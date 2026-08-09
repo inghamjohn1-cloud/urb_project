@@ -76,6 +76,15 @@ def _ticker(row: dict) -> str:
     return str(row.get("ticker") or row.get("symbol") or "").upper()
 
 
+def _candle_date(c: dict) -> str:
+    """Return YYYY-MM-DD from a candle dict (handles ISO strings and unix-ms timestamps)."""
+    v = str(c.get("date") or c.get("start_time") or "")
+    if len(v) == 13 and v.isdigit():
+        from datetime import datetime
+        return datetime.utcfromtimestamp(int(v) / 1000).strftime("%Y-%m-%d")
+    return v[:10]
+
+
 # ── PEC score (0–10) ──────────────────────────────────────────────────────────
 
 def pec_score(c: dict) -> int:
@@ -142,6 +151,70 @@ def stage1_earnings(client: UWClient, min_date: str, max_date: str,
     except UWError as e:
         print(f"FAILED — {e}")
         return []
+
+
+def stage1b_pre_closes(
+    client: UWClient,
+    earnings_rows: list[dict],
+    e_cache: list[dict],
+    persist: bool = True,
+) -> None:
+    """Fetch the pre-earnings close for any ticker that lacks it in the cache.
+
+    Calls daily_ohlc() for each ticker missing a pre_close, takes the closing
+    price of the last candle before report_date, upserts into earnings_cache.csv,
+    and mutates e_cache in place so build_candidates() sees the correct values.
+    """
+    need = [
+        (_ticker(er), str(er.get("report_date") or "")[:10])
+        for er in earnings_rows
+        if _ticker(er)
+    ]
+    need = [
+        (t, rd) for t, rd in need
+        if rd and not any(
+            r.get("ticker", "").upper() == t
+            and r.get("report_date", "")[:10] == rd
+            and _f(r.get("pre_close"))
+            for r in e_cache
+        )
+    ]
+    if not need:
+        return
+
+    print(f"  Stage 1b pre-close OHLC for {len(need)} ticker"
+          f"{'s' if len(need) != 1 else ''} ... ", end="", flush=True)
+    updates: list[dict] = []
+    fetched = 0
+    for t, report_date in need:
+        try:
+            candles = client.daily_ohlc(t, timeframe="3M")
+            before = [c for c in candles if _candle_date(c) < report_date]
+            if not before:
+                continue
+            pre_close = _f(before[-1].get("close") or before[-1].get("c"))
+            if pre_close is None:
+                continue
+            merged = False
+            for r in e_cache:
+                if (r.get("ticker", "").upper() == t
+                        and r.get("report_date", "")[:10] == report_date):
+                    r["pre_close"] = str(pre_close)
+                    updates.append(dict(r))
+                    merged = True
+                    break
+            if not merged:
+                entry = {k: "" for k in earnings_mod.CACHE_COLS}
+                entry.update({"ticker": t, "report_date": report_date,
+                              "pre_close": str(pre_close)})
+                e_cache.append(entry)
+                updates.append(entry)
+            fetched += 1
+        except UWError:
+            pass
+    print(f"{fetched}/{len(need)} fetched")
+    if updates and persist:
+        earnings_mod.upsert(updates)
 
 
 def stage2_flow(client: UWClient, tickers: list[str]) -> dict[str, dict]:
@@ -233,7 +306,9 @@ def build_candidates(
                      or _f(fr.get("percent_change"))
                      or 0.0)
 
-        # Prefer earnings_cache pre_close for selloff; fall back to today_chg.
+        # Cumulative selloff from pre-earnings close (populated by stage1b).
+        # Falls back to today's daily change only when OHLC fetch failed —
+        # that proxy is wrong for multi-day selloffs; treat such rows with caution.
         sp = earnings_mod.selloff_pct(t, close_raw, today, e_cache) if close_raw else None
         selloff = sp if sp is not None else today_chg
 
@@ -464,6 +539,7 @@ def main(argv=None):
     if not args.dry_run:
         update_earnings_cache(e_rows)
     e_cache = earnings_mod.load()
+    stage1b_pre_closes(client, e_rows, e_cache, persist=not args.dry_run)
 
     candidates = build_candidates(
         e_rows, flow_map, accum_map, e_cache, today, args.min_selloff
