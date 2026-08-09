@@ -97,6 +97,24 @@ def _ticker(row: dict) -> str:
     return str(row.get("ticker") or row.get("symbol") or "").upper()
 
 
+def _net_premium(fr: dict) -> float | None:
+    """Net options premium, directional (positive = call-side demand).
+
+    The stock screener returns net_premium as null and only supplies the two
+    legs, so reconstruct it as net_call_premium - net_put_premium. Falling back
+    to net_call_premium alone understates the bearish case: on 2026-08-07 AMRZ
+    showed -82,635 on the call leg but -179,406 net once puts were counted.
+    """
+    direct = _f(fr.get("net_premium"))
+    if direct is not None:
+        return direct
+    call_leg = _f(fr.get("net_call_premium"))
+    put_leg = _f(fr.get("net_put_premium"))
+    if call_leg is None:
+        return None
+    return call_leg - (put_leg or 0.0)
+
+
 def _candle_date(c: dict) -> str:
     """Return YYYY-MM-DD from a candle dict (handles ISO strings and unix-ms timestamps)."""
     v = str(c.get("date") or c.get("start_time") or "")
@@ -306,6 +324,14 @@ def stage3_accum(client: UWClient, tickers: list[str]) -> dict[str, dict]:
             t = _ticker(a)
             if not t:
                 continue
+            # is_call only says the contract was a call, not that anyone bought
+            # it. On 2026-08-07 AMLX's sole post-earnings call alert was 100%
+            # bid-side — calls being SOLD into the decline, the opposite of
+            # accumulation. Require the ask side to dominate before counting it.
+            ask = _f(a.get("total_ask_side_prem"), 0.0) or 0.0
+            bid = _f(a.get("total_bid_side_prem"), 0.0) or 0.0
+            if ask <= bid:
+                continue
             rule = str(a.get("rule_name") or a.get("alert_rule") or "")
             rec = counts.setdefault(t, {
                 "floor_alert_count": 0,
@@ -381,7 +407,7 @@ def build_candidates(
             "estimated_eps": _f(er.get("estimated_eps")),
             "close": close_raw,
             "today_change_pct": round(today_chg, 4),
-            "net_premium": _f(fr.get("net_premium") or fr.get("net_call_premium")),
+            "net_premium": _net_premium(fr),
             "put_call_ratio": _f(fr.get("put_call_ratio")),
             "iv_rank": _f(fr.get("iv_rank")),
             "floor_alert_count": acc.get("floor_alert_count", 0),
