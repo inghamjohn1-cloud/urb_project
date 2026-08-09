@@ -5,16 +5,28 @@ Three-stage pipeline run once per trading day (after close) to find stocks
 that reported a badly broken quarter and are being sold hard in the options
 market — a setup that historically reverts over the following month.
 
-Tuned against pec_study.py: 945 earnings events across 119 liquid names,
-2024-08 to 2026-08. What that study found, and what this scanner encodes:
+Tuned against pec_study.py (945 events, 119 names) and then tested against
+100 names that search never touched (770 events), under a prediction
+registered in OOS_PREREGISTRATION.md before the data was pulled.
 
-  A real EPS miss is the setup.        miss <= -20%:  +2.2% at 21d (n=67)
-  Negative net premium doubles it.     + neg flow:    +4.3% at 21d, 71% win
-  Positive flow inverts it.            + pos flow:    -3.7% at 21d, 44% win
-  Size of the flow matters.            <= -$1M:       +5.2% edge, t=2.44
-                                       >  -$1M:       +1.1% edge, t=0.26
+  gate: EPS miss <= -20% AND negative net premium on the reaction day
 
-and, just as importantly, what it ruled out:
+              21d edge     t      win
+  in-sample     +4.26%   +2.27   71.1%   (n=45)
+  OUT-OF-SAMPLE +4.09%   +1.01   55.4%   (n=74)
+
+The effect size replicated; the significance did not. The ticker-clustered
+95% CI out-of-sample was [-2.10%, +12.17%], which crosses zero, so the
+registered verdict is NOT CONFIRMED. Note the win rate: 71% collapsing to
+55% means the in-sample hit rate was luck and the surviving edge lives in a
+few large winners, not a reliably favourable distribution. Trade it small
+or not at all until the forward test says more.
+
+What the out-of-sample run killed outright: the -$1M flow-magnitude split,
+which inverted (strong +3.4%, weak +5.2%) after scoring +5.2% vs +1.1%
+in-sample. It no longer contributes to the score.
+
+and what the original study had already ruled out:
 
   A stock falling further than the options market priced in carries NO
   information (n=172, edge ~0.0% at every horizon). An earlier version of
@@ -173,15 +185,18 @@ def pec_score(c: dict) -> int:
 
     score = 1  # cleared both gates
 
-    # VALIDATED: flow magnitude. Below -$1M the edge was +5.2% at 21d with
-    # t=2.44; above it, +1.1% and t=0.26. This is the one real discriminator.
+    # FAILED REPLICATION: flow magnitude. In-sample, below -$1M scored +5.2%
+    # at 21d against +1.1% above it, and this was worth 2 points as the one
+    # "validated" dimension. On 100 unseen tickers the split inverted —
+    # strong +3.4%, weak +5.2%. It was overfitting, so it no longer scores.
+    # STRONG_FLOW survives only as the label in print_table and the
+    # pre-registered whale_eval split, which the forward test still tracks.
     net_prem = _f(c.get("net_premium"), 0.0) or 0.0
-    if net_prem <= STRONG_FLOW:
-        score += 2
 
-    # THIN: elevated IV rank looked strong (+9.9% edge, 86% win) but on n=7.
-    # Worth one point to break ties and to accumulate forward evidence; not
-    # worth more until the sample grows.
+    # THIN: elevated IV rank looked strong (+9.9% edge, 86% win) on n=7.
+    # One point, purely to break ties and accumulate forward evidence. Given
+    # that the far better-powered flow split above still failed to replicate,
+    # treat this as unproven rather than merely under-sampled.
     iv = _f(c.get("iv_rank"))
     if iv is not None and iv > 50:
         score += 1
