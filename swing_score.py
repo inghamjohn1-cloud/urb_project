@@ -483,6 +483,10 @@ def build_candidate(flow: dict, tech: dict, dp: dict,
         c.flags.append("no dark-pool confirmation")
     if flow["coherence"] < 0.3:
         c.flags.append("two-way flow")
+    # A name whose premium mostly printed between the quotes had its direction
+    # inferred from option type alone — say so rather than implying certainty.
+    if flow.get("unsided_share", 0.0) >= 0.5:
+        c.flags.append(f"{flow['unsided_share']:.0%} mid-market — direction inferred")
 
     return c
 

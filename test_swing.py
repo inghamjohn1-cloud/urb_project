@@ -249,6 +249,187 @@ class TestFlow(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Direction classification (option type AND side of the spread)
+# ---------------------------------------------------------------------------
+def bought(side, premium=2e6, **kw):
+    """An alert that lifted the offer — the whole premium on the ask."""
+    return make_alert(side=side, premium=premium, ask_prem=premium, bid_prem=0.0, **kw)
+
+
+def sold(side, premium=2e6, **kw):
+    """An alert that hit the bid — the whole premium on the bid side."""
+    return make_alert(side=side, premium=premium, ask_prem=0.0, bid_prem=premium, **kw)
+
+
+class TestDirectionClassification(unittest.TestCase):
+    """The four type x side combinations, and that the label propagates."""
+
+    # -- the truth table ---------------------------------------------------
+    def test_ask_side_calls_are_bullish(self):
+        agg = aggregate([bought("call")])
+        self.assertEqual(agg["direction"], "long")
+        self.assertEqual(agg["bullish_premium"], 2e6)
+        self.assertEqual(agg["bearish_premium"], 0.0)
+
+    def test_bid_side_calls_are_bearish(self):
+        """Selling calls is a bearish position, not a bullish one."""
+        agg = aggregate([sold("call")])
+        self.assertEqual(agg["direction"], "short")
+        self.assertEqual(agg["bearish_premium"], 2e6)
+        self.assertEqual(agg["bullish_premium"], 0.0)
+
+    def test_ask_side_puts_are_bearish(self):
+        agg = aggregate([bought("put", strike=90.0)])
+        self.assertEqual(agg["direction"], "short")
+        self.assertEqual(agg["bearish_premium"], 2e6)
+        self.assertEqual(agg["bullish_premium"], 0.0)
+
+    def test_bid_side_puts_are_bullish(self):
+        """Selling puts is a bullish position — the regression this fixes."""
+        agg = aggregate([sold("put", strike=90.0)])
+        self.assertEqual(agg["direction"], "long")
+        self.assertEqual(agg["bullish_premium"], 2e6)
+        self.assertEqual(agg["bearish_premium"], 0.0)
+
+    # -- regressions against the old call-vs-put logic ---------------------
+    def test_sold_puts_no_longer_read_as_short(self):
+        """Old logic keyed on put premium alone and returned 'short' here."""
+        agg = aggregate([sold("put", premium=3e6, strike=90.0)])
+        self.assertGreater(agg["put_premium"], agg["call_premium"],
+                           "put premium still dominates by option type")
+        self.assertEqual(agg["direction"], "long",
+                         "but the position is bullish, so direction must be long")
+
+    def test_sold_calls_no_longer_read_as_long(self):
+        agg = aggregate([sold("call", premium=3e6)])
+        self.assertGreater(agg["call_premium"], agg["put_premium"])
+        self.assertEqual(agg["direction"], "short")
+
+    def test_mixed_book_nets_by_side_not_by_type(self):
+        # All puts by option type, but mostly sold -> net bullish.
+        agg = aggregate([sold("put", premium=3e6, strike=90.0),
+                         bought("put", premium=1e6, strike=85.0)])
+        self.assertEqual(agg["put_premium"], 4e6)
+        self.assertEqual(agg["call_premium"], 0.0)
+        self.assertEqual(agg["bullish_premium"], 3e6)
+        self.assertEqual(agg["bearish_premium"], 1e6)
+        self.assertEqual(agg["direction"], "long")
+
+    def test_synthetic_long_from_bought_calls_and_sold_puts(self):
+        """Both legs are bullish even though one is a call and one a put."""
+        agg = aggregate([bought("call", premium=1.5e6),
+                         sold("put", premium=1.5e6, strike=90.0)])
+        self.assertEqual(agg["bullish_premium"], 3e6)
+        self.assertEqual(agg["bearish_premium"], 0.0)
+        self.assertEqual(agg["direction"], "long")
+        self.assertAlmostEqual(agg["coherence"], 1.0, places=6,
+                               msg="one-sided by intent, not by option type")
+
+    # -- mid-market fallback ----------------------------------------------
+    def test_mid_market_premium_falls_back_to_option_type(self):
+        agg = aggregate([make_alert(side="call", premium=2e6,
+                                    ask_prem=0.0, bid_prem=0.0)])
+        self.assertEqual(agg["unsided_premium"], 2e6)
+        self.assertEqual(agg["bullish_premium"], 2e6)
+        self.assertEqual(agg["direction"], "long")
+        self.assertAlmostEqual(agg["unsided_share"], 1.0, places=6)
+
+    def test_partial_mid_market_is_split_correctly(self):
+        # 2M premium, only 1.2M attributable to a side (0.8M printed mid).
+        agg = aggregate([make_alert(side="put", premium=2e6, strike=90.0,
+                                    ask_prem=0.2e6, bid_prem=1.0e6)])
+        self.assertAlmostEqual(agg["unsided_premium"], 0.8e6, places=3)
+        # bid-side puts (1.0M) bullish; ask-side puts (0.2M) + mid (0.8M) bearish
+        self.assertAlmostEqual(agg["bullish_premium"], 1.0e6, places=3)
+        self.assertAlmostEqual(agg["bearish_premium"], 1.0e6, places=3)
+        self.assertAlmostEqual(agg["unsided_share"], 0.4, places=6)
+
+    def test_fully_sided_flow_reports_no_unsided_share(self):
+        agg = aggregate([bought("call")])
+        self.assertEqual(agg["unsided_premium"], 0.0)
+        self.assertEqual(agg["unsided_share"], 0.0)
+
+    # -- coherence now measures intent, not option type --------------------
+    def test_coherence_uses_bullish_vs_bearish(self):
+        # Bought calls + sold calls = genuinely two-way despite one type.
+        agg = aggregate([bought("call", premium=2e6),
+                         sold("call", premium=2e6, strike=120.0)])
+        self.assertAlmostEqual(agg["coherence"], 0.0, places=6)
+
+    # -- aggression is a separate axis and must be untouched ---------------
+    def test_aggression_still_measures_lifting_the_offer(self):
+        self.assertAlmostEqual(aggregate([bought("call")])["aggression"], 1.0, places=6)
+        self.assertAlmostEqual(aggregate([sold("call")])["aggression"], 0.0, places=6)
+        # Puts included: aggression tracks the ask side regardless of type.
+        self.assertAlmostEqual(aggregate([bought("put", strike=90.0)])["aggression"],
+                               1.0, places=6)
+        self.assertAlmostEqual(aggregate([sold("put", strike=90.0)])["aggression"],
+                               0.0, places=6)
+
+    def test_aggression_is_independent_of_direction(self):
+        """A bullish sold-put prints on the bid, so it is passive but long."""
+        agg = aggregate([sold("put", strike=90.0)])
+        self.assertEqual(agg["direction"], "long")
+        self.assertAlmostEqual(agg["aggression"], 0.0, places=6)
+
+    # -- the corrected label reaches the gates and the technical rules -----
+    def test_corrected_direction_reaches_the_trend_veto(self):
+        """Sold puts in a downtrend must now be vetoed as a LONG."""
+        downtrend = ind.snapshot(make_candles(300, drift=-0.0015))
+        agg = aggregate([sold("put", premium=3e6, strike=90.0)])
+        reason = check_gates(agg, downtrend, today=TODAY)
+        self.assertIn("bullish flow but price below 200 EMA", reason)
+
+    def test_corrected_direction_passes_the_veto_in_an_uptrend(self):
+        uptrend = ind.snapshot(make_candles(300, drift=0.0015))
+        agg = aggregate([sold("put", premium=3e6, strike=90.0)])
+        self.assertEqual(check_gates(agg, uptrend, today=TODAY), "")
+
+    def test_sold_calls_are_vetoed_in_an_uptrend(self):
+        uptrend = ind.snapshot(make_candles(300, drift=0.0015))
+        agg = aggregate([sold("call", premium=3e6)])
+        self.assertIn("bearish flow but price above 200 EMA",
+                      check_gates(agg, uptrend, today=TODAY))
+
+    def test_corrected_direction_drives_mirrored_technical_rules(self):
+        """The uptrend chart must be graded long-side for a sold-put name."""
+        uptrend = ind.snapshot(make_candles(300, drift=0.0015))
+        agg = aggregate([sold("put", premium=3e6, strike=90.0)])
+        long_pts = score_technical(uptrend, agg["direction"])[0]
+        short_pts = score_technical(uptrend, "short")[0]
+        self.assertEqual(agg["direction"], "long")
+        self.assertGreater(long_pts, short_pts)
+
+    def test_corrected_direction_drives_darkpool_alignment(self):
+        """Accumulation blocks must confirm a sold-put (bullish) name."""
+        acc = fl.aggregate_darkpool(
+            [{"premium": 5e6, "size": 100_000, "price": 100.9,
+              "nbbo_bid": 100.0, "nbbo_ask": 101.0}] * 5, 5_000_000)
+        agg = aggregate([sold("put", premium=3e6, strike=90.0)])
+        pts, notes = score_darkpool(acc, agg["direction"])
+        self.assertGreater(pts, 0.0)
+        self.assertTrue(any("accumulation" in n for n in notes))
+
+    def test_end_to_end_sold_put_is_scored_as_a_long(self):
+        uptrend = ind.snapshot(make_candles(300, drift=0.0015, last_volume_mult=1.6))
+        agg = aggregate([sold("put", premium=2.5e6, strike=90.0, dte=35),
+                         sold("put", premium=1.5e6, strike=85.0, dte=45, day_offset=1)])
+        c = build_candidate(agg, uptrend, {"has_data": False}, today=TODAY)
+        self.assertEqual(c.direction, "long")
+        self.assertEqual(c.rejected, "", f"unexpected rejection: {c.rejected}")
+        self.assertLess(c.stop, c.entry, "long stop must sit below entry")
+        self.assertGreater(c.target1, c.entry)
+
+    def test_high_mid_market_share_is_flagged_not_hidden(self):
+        uptrend = ind.snapshot(make_candles(300, drift=0.0015, last_volume_mult=1.6))
+        agg = aggregate([make_alert(side="call", premium=3e6,
+                                    ask_prem=0.0, bid_prem=0.0)])
+        c = build_candidate(agg, uptrend, {"has_data": False}, today=TODAY)
+        self.assertTrue(any("direction inferred" in f for f in c.flags),
+                        f"expected a mid-market flag, got {c.flags}")
+
+
+# ---------------------------------------------------------------------------
 # Gates
 # ---------------------------------------------------------------------------
 class TestGates(unittest.TestCase):

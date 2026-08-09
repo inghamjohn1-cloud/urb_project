@@ -128,6 +128,42 @@ def normalize_alert(row: dict, today: _dt.date | None = None) -> dict | None:
     }
 
 
+def classify_premium(a: dict) -> tuple[float, float, float]:
+    """Split one alert's premium into (bullish, bearish, unsided).
+
+    Direction is a function of BOTH the option type and the side of the spread
+    the trade printed on — buying and selling the same contract are opposite
+    bets, so option type alone is not enough:
+
+        ask-side call  -> bullish   (paying up for upside)
+        bid-side call  -> bearish   (writing/selling calls)
+        ask-side put   -> bearish   (paying up for downside)
+        bid-side put   -> bullish   (writing/selling puts)
+
+    Premium that printed between the quotes cannot be attributed by side, so it
+    falls back to the option type (call = bullish, put = bearish) and is
+    returned separately as `unsided` — the caller exposes it as
+    `unsided_share` so a mid-market-dominated name can be discounted.
+    """
+    is_call = a["side"] == "call"
+    ask, bid = a["ask_prem"], a["bid_prem"]
+
+    if is_call:
+        bullish, bearish = ask, bid
+    else:
+        bullish, bearish = bid, ask
+
+    # Whatever the ask/bid split does not account for printed mid-market.
+    unsided = max(0.0, a["premium"] - (ask + bid))
+    if unsided > 0:
+        if is_call:
+            bullish += unsided
+        else:
+            bearish += unsided
+
+    return bullish, bearish, unsided
+
+
 def alert_passes(a: dict, today: _dt.date | None = None) -> tuple[bool, str]:
     """Apply the per-alert gates. Returns (passed, reason_if_failed)."""
     today = today or _dt.date.today()
@@ -162,8 +198,11 @@ def aggregate_alerts(alerts: list[dict]) -> dict[str, dict]:
             "call_premium": 0.0,
             "put_premium": 0.0,
             "total_premium": 0.0,
-            "aggressive_premium": 0.0,   # ask-side calls + bid-side puts
-            "passive_premium": 0.0,
+            "bullish_premium": 0.0,      # ask-side calls + bid-side puts
+            "bearish_premium": 0.0,      # bid-side calls + ask-side puts
+            "unsided_premium": 0.0,      # printed mid-market, side unknowable
+            "aggressive_premium": 0.0,   # lifted the offer (either type)
+            "passive_premium": 0.0,      # rested on / hit the bid
             "opening_premium": 0.0,
             "sweep_premium": 0.0,
             "floor_premium": 0.0,
@@ -182,15 +221,19 @@ def aggregate_alerts(alerts: list[dict]) -> dict[str, dict]:
         t["total_premium"] += a["premium"]
         if a["side"] == "call":
             t["call_premium"] += a["premium"]
-            # For calls, buying pressure prints on the ask.
-            t["aggressive_premium"] += a["ask_prem"]
-            t["passive_premium"] += a["bid_prem"]
         else:
             t["put_premium"] += a["premium"]
-            # For puts, the aggressive buyer also lifts the ask; bid-side puts
-            # are sales. Directionally bearish conviction = ask-side puts.
-            t["aggressive_premium"] += a["ask_prem"]
-            t["passive_premium"] += a["bid_prem"]
+
+        # Directional attribution: option type AND side of the spread.
+        bull, bear, unsided = classify_premium(a)
+        t["bullish_premium"] += bull
+        t["bearish_premium"] += bear
+        t["unsided_premium"] += unsided
+
+        # Aggression is a separate axis and is unchanged: lifting the offer is
+        # aggressive on either option type, resting on the bid is passive.
+        t["aggressive_premium"] += a["ask_prem"]
+        t["passive_premium"] += a["bid_prem"]
 
         if a["all_opening"]:
             t["opening_premium"] += a["premium"]
@@ -217,11 +260,20 @@ def aggregate_alerts(alerts: list[dict]) -> dict[str, dict]:
         t["n_alerts"] = len(t["alerts"])
         t["call_share"] = t["call_premium"] / tot
         t["put_share"] = t["put_premium"] / tot
-        # Direction: which side of the tape dominates the premium.
-        t["direction"] = "long" if t["call_premium"] >= t["put_premium"] else "short"
-        dominant = max(t["call_premium"], t["put_premium"])
+
+        # Direction comes from the BULLISH/BEARISH split, not call vs put:
+        # a put sold on the bid is a bullish position, not a bearish one.
+        directional = t["bullish_premium"] + t["bearish_premium"]
+        t["direction"] = ("long" if t["bullish_premium"] >= t["bearish_premium"]
+                          else "short")
+        t["bullish_share"] = (t["bullish_premium"] / directional) if directional else 0.0
+        # Share of premium that printed mid-market and had to fall back to
+        # option type — high values mean the direction read is less reliable.
+        t["unsided_share"] = t["unsided_premium"] / tot
+
+        dominant = max(t["bullish_premium"], t["bearish_premium"])
         # Coherence: 1.0 = entirely one-sided, 0.0 = perfectly split.
-        t["coherence"] = (2.0 * dominant / tot) - 1.0
+        t["coherence"] = ((2.0 * dominant / directional) - 1.0) if directional else 0.0
         ag_total = t["aggressive_premium"] + t["passive_premium"]
         t["aggression"] = (t["aggressive_premium"] / ag_total) if ag_total else None
         t["opening_share"] = t["opening_premium"] / tot

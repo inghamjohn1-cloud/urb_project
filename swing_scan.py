@@ -242,7 +242,8 @@ def _p(v) -> str:
 def write_csv(path: str, live: list[Candidate]) -> None:
     cols = ["ticker", "direction", "tier", "score", "flow_score", "dp_score",
             "tech_score", "liq_score", "sector", "total_premium", "call_premium",
-            "put_premium", "n_alerts", "avg_dte", "aggression", "sweep_share",
+            "put_premium", "bullish_premium", "bearish_premium", "unsided_share",
+            "n_alerts", "avg_dte", "aggression", "sweep_share",
             "opening_share", "coherence", "dp_block_premium", "dp_pct_of_adv",
             "dp_lean", "last", "ema_fast", "ema_slow", "rsi", "atr", "volume_ratio",
             "entry", "stop", "target1", "target2", "shares", "notes", "flags"]
@@ -257,6 +258,9 @@ def write_csv(path: str, live: list[Candidate]) -> None:
                 round(c.flow.get("total_premium") or 0, 0),
                 round(c.flow.get("call_premium") or 0, 0),
                 round(c.flow.get("put_premium") or 0, 0),
+                round(c.flow.get("bullish_premium") or 0, 0),
+                round(c.flow.get("bearish_premium") or 0, 0),
+                _r(c.flow.get("unsided_share"), 3),
                 c.flow.get("n_alerts"),
                 _r(c.flow.get("avg_dte"), 1), _r(c.flow.get("aggression"), 3),
                 _r(c.flow.get("sweep_share"), 3), _r(c.flow.get("opening_share"), 3),
