@@ -16,13 +16,31 @@ import unittest
 
 import swing_indicators as ind
 import swing_flow as fl
+from swing_config import UNIVERSE
 from swing_score import (
-    build_candidate, check_gates, score_flow, score_technical, score_darkpool,
-    assign_tier, rank,
+    build_candidate, check_gates, check_options_universe, score_flow,
+    score_technical, score_darkpool, assign_tier, rank,
 )
 
 
 TODAY = _dt.date(2026, 8, 10)
+
+# The options-universe ceilings are ACCOUNT-SIZE POLICY, not engine behaviour.
+# Every test below exercises the engine, so the policy is switched off for the
+# module and switched back on explicitly by TestOptionsUniverse. Without this
+# the synthetic fixture (which drifts to ~$156) would be screened out and the
+# gate/scoring tests would stop testing what they were written to test.
+_CEILINGS = {}
+
+
+def setUpModule():
+    for k in ("options_max_atr_dollars", "options_max_price"):
+        _CEILINGS[k] = UNIVERSE.get(k)
+        UNIVERSE[k] = None
+
+
+def tearDownModule():
+    UNIVERSE.update(_CEILINGS)
 
 
 # ---------------------------------------------------------------------------
@@ -1042,6 +1060,80 @@ class TestAffordabilityFilter(unittest.TestCase):
         opt.plan_spread(c, TODAY, 5_000.0)
         self.assertEqual(before, (c.score, c.tier, c.flow_score, c.dp_score,
                                   c.tech_score))
+
+
+class TestOptionsUniverse(unittest.TestCase):
+    """The small-account screen. Policy, not scoring."""
+
+    def setUp(self):
+        UNIVERSE["options_max_atr_dollars"] = _CEILINGS["options_max_atr_dollars"]
+        UNIVERSE["options_max_price"] = _CEILINGS["options_max_price"]
+
+    def tearDown(self):
+        UNIVERSE["options_max_atr_dollars"] = None
+        UNIVERSE["options_max_price"] = None
+
+    def test_configured_ceilings(self):
+        self.assertEqual(UNIVERSE["options_max_atr_dollars"], 4.00)
+        self.assertEqual(UNIVERSE["options_max_price"], 150.0)
+
+    def test_high_atr_name_is_screened_out(self):
+        reason = check_options_universe({}, {"last": 90.0, "atr": 10.72})
+        self.assertIn("ATR", reason)
+        self.assertIn("too wide", reason)
+
+    def test_high_priced_name_is_screened_out(self):
+        reason = check_options_universe({}, {"last": 1185.71, "atr": 42.27})
+        self.assertIn("price ceiling", reason)
+
+    def test_cheap_low_atr_name_passes(self):
+        self.assertEqual(check_options_universe({}, {"last": 48.42, "atr": 3.69}), "")
+
+    def test_price_ok_but_atr_too_high_is_rejected(self):
+        """Both ceilings bind independently."""
+        reason = check_options_universe({}, {"last": 88.58, "atr": 10.72})
+        self.assertTrue(reason)
+        self.assertIn("ATR", reason)
+
+    def test_screen_falls_back_to_flow_price_when_no_bars(self):
+        reason = check_options_universe({"underlying_price": 1185.0}, {})
+        self.assertIn("price ceiling", reason)
+
+    def test_screen_is_a_noop_when_ceilings_are_disabled(self):
+        UNIVERSE["options_max_atr_dollars"] = None
+        UNIVERSE["options_max_price"] = None
+        self.assertEqual(check_options_universe({}, {"last": 5000.0, "atr": 99.0}), "")
+
+    def test_missing_data_does_not_trip_the_screen(self):
+        self.assertEqual(check_options_universe({}, {}), "")
+
+    def test_ceiling_admits_what_the_budget_can_realistically_reach(self):
+        """At the ceiling a spread is reachable when the 2R cap binds."""
+        import swing_options as so
+        atr = UNIVERSE["options_max_atr_dollars"]
+        em = atr * (39 * 252 / 365) ** 0.5
+        # Tight-stop case: 2R about 1 ATR wide.
+        w = atr
+        required = w * so.debit_fraction(w, em) * 100
+        self.assertLess(required, so.budget_for("A", 5_000.0),
+                        "ceiling should leave a reachable case")
+
+    def test_gate_rejects_screened_names_before_scoring(self):
+        tech = ind.snapshot(make_candles(300, drift=0.0015))
+        tech = dict(tech, last=1185.0, atr=42.0)
+        flow = aggregate([bought("call", premium=3e6)])
+        reason = check_gates(flow, tech, today=TODAY)
+        self.assertIn("ceiling", reason)
+
+    def test_screened_candidate_has_no_levels_and_states_why(self):
+        tech = ind.snapshot(make_candles(300, drift=0.0015))
+        tech = dict(tech, last=1185.0, atr=42.0)
+        flow = aggregate([bought("call", premium=3e6)])
+        c = build_candidate(flow, tech, {"has_data": False}, today=TODAY)
+        self.assertTrue(c.rejected)
+        self.assertIn("ceiling", c.rejected)
+        self.assertIsNone(c.entry)
+        self.assertEqual(c.score, 0.0)
 
 
 if __name__ == "__main__":

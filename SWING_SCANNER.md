@@ -54,6 +54,16 @@ partially fail its way onto your screen.
 | 30-day ADV | ≥ 1,000,000 shares | You need to get out too |
 | Dollar volume | ≥ $25M/day | The real liquidity test |
 | Option spread | ≤ 15% of mid | A wide chain eats the edge before you start |
+| **ATR (dollars)** | **≤ $4.00** | Small-account options screen — see below |
+| **Price** | **≤ $150** | Small-account options screen — see below |
+
+The last two are **account-size policy, not setup quality**, and apply only when
+sizing with defined-risk options (`swing_options.py`). At the $250 concentration
+budget the narrowest worthwhile vertical is 0.5 expected moves wide and costs
+~40% of its width, so `required ≈ 104 × ATR` — $2.40 of ATR is *guaranteed*
+affordable, and up to ~$5.40 works when the 2R cap binds tighter. $4.00 sits
+between: a realistic chance, not a certainty. Set both to `None` in
+`UNIVERSE` on a larger account and the screen becomes a no-op.
 
 **Flow** (`swing_config.FLOW`)
 

@@ -25,6 +25,30 @@ UNIVERSE = {
     "min_dollar_volume": 25_000_000,       # ADV * price — real liquidity test
     "min_option_open_interest": 5_000,     # ticker-level OI; thin chains fail
     "max_option_spread_pct": 0.15,         # (ask-bid)/mid on the alerted contract
+
+    # --- Small-account options ceilings ----------------------------------
+    # Upstream screen so the scan stops surfacing names that score well but
+    # can never be sized. Set either to None to disable (a larger account
+    # should).
+    #
+    # Derivation for max_atr_dollars, at the $250 concentration budget:
+    #   the narrowest worthwhile spread is 0.5 expected moves (see OPTIONS),
+    #   EM = ATR * sqrt(~27 trading days) = 5.19 * ATR, and an 0.5-EM vertical
+    #   costs ~40% of its width, so
+    #       required ~= 0.5 * 5.19 * ATR * 0.40 * 100 = 104 * ATR
+    #   $250 / 104 = $2.40 of ATR is GUARANTEED affordable. The floor is also
+    #   capped at the trade's 2R distance, which is often tighter than 0.5 EM
+    #   when the 50 EMA sits close, and in that case the same $250 stretches to
+    #   roughly $5.40 of ATR. $4.00 sits between the two: a realistic chance,
+    #   not a certainty. The affordability filter in swing_options.py does the
+    #   exact arithmetic per name; this is only the coarse screen.
+    #
+    # max_price is a secondary guard: above ~$150 strike increments coarsen to
+    # $5+, so the minimum constructible width jumps, and an ATR under $4 on a
+    # $150+ name implies under ~2.7% daily range — drifting toward the "too
+    # quiet to pay a swing" zone the liquidity score already discounts.
+    "options_max_atr_dollars": 4.00,
+    "options_max_price": 150.0,
 }
 
 # ---------------------------------------------------------------------------

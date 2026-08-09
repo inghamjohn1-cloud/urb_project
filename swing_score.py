@@ -60,10 +60,45 @@ def _clamp(v: float, lo: float, hi: float) -> float:
 # ---------------------------------------------------------------------------
 # Hard gates
 # ---------------------------------------------------------------------------
+def check_options_universe(flow: dict, tech: dict) -> str:
+    """Small-account options screen. Returns "" to pass, else the reason.
+
+    Purely additive: when both ceilings are None (the default for a larger
+    account) this is a no-op and gate behaviour is exactly as it was before
+    the screen existed. It touches no score component — a name it rejects is
+    dropped for being unsizeable, not for being a worse setup.
+
+    This is a NECESSARY condition, not a sufficient one. The exact per-name
+    arithmetic lives in swing_options.affordability(); this only removes names
+    that cannot work regardless of where their stop lands.
+    """
+    max_atr = UNIVERSE.get("options_max_atr_dollars")
+    max_px = UNIVERSE.get("options_max_price")
+
+    if max_px is not None:
+        price = tech.get("last") or flow.get("underlying_price")
+        if price is not None and price > max_px:
+            return (f"${price:,.2f} above the ${max_px:,.0f} options-universe "
+                    f"price ceiling")
+
+    if max_atr is not None:
+        atr = tech.get("atr")
+        if atr is not None and atr > max_atr:
+            return (f"ATR ${atr:,.2f} above the ${max_atr:.2f} ceiling — "
+                    f"needs a spread too wide for the budget")
+
+    return ""
+
+
 def check_gates(flow: dict, tech: dict, allow_earnings: bool = False,
                 today: _dt.date | None = None) -> str:
     """Return "" if the candidate is tradeable, else the rejection reason."""
     today = today or _dt.date.today()
+
+    # Upstream: can an account this size express the idea at all?
+    reason = check_options_universe(flow, tech)
+    if reason:
+        return reason
 
     if flow["total_premium"] < FLOW["min_ticker_premium"]:
         return f"ticker premium ${flow['total_premium']:,.0f} < ${FLOW['min_ticker_premium']:,.0f}"
