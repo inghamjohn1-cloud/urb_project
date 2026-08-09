@@ -39,9 +39,10 @@ class UWClient:
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         url = BASE_URL + path
         if params:
-            # drop None values, keep the rest
             clean = {k: v for k, v in params.items() if v is not None}
-            url += "?" + urllib.parse.urlencode(clean)
+            qs = _build_qs(clean)
+            if qs:
+                url += "?" + qs
 
         headers = {
             "Authorization": f"Bearer {self.token}",
@@ -108,6 +109,102 @@ class UWClient:
         """
         data = self._get("/api/market/sector-etfs")
         return _unwrap(data)
+
+    def earnings_screener(
+        self,
+        min_report_date: str,
+        max_report_date: str,
+        max_surprise_pct: float | None = None,
+        min_marketcap: int | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Earnings results with EPS vs estimate data ordered by worst miss first.
+
+        GET /api/earnings/screener
+        """
+        data = self._get("/api/earnings/screener", {
+            "min_report_date": min_report_date,
+            "max_report_date": max_report_date,
+            "max_surprise_percentage": max_surprise_pct,
+            "min_marketcap": min_marketcap,
+            "order_by": "surprise_percentage",
+            "order_direction": "asc",
+            "limit": limit,
+        })
+        return _unwrap(data)
+
+    def stock_screener(
+        self,
+        tickers: list[str] | None = None,
+        max_change: float | None = None,
+        max_net_premium: int | None = None,
+        min_marketcap: int | None = None,
+        is_sp500: bool | None = None,
+        order: str = "net_premium",
+        order_direction: str = "asc",
+        limit: int = 100,
+    ) -> list[dict]:
+        """Stock screener ranked by options-flow metrics.
+
+        GET /api/stock-screener
+        """
+        params: dict[str, Any] = {
+            "order": order,
+            "order_direction": order_direction,
+            "limit": limit,
+            "hide_index_etf": "true",
+            "issue_types[]": ["Common Stock"],
+        }
+        if tickers:
+            params["ticker"] = ",".join(tickers)
+        if max_change is not None:
+            params["max_change"] = max_change
+        if max_net_premium is not None:
+            params["max_net_premium"] = max_net_premium
+        if min_marketcap is not None:
+            params["min_marketcap"] = min_marketcap
+        if is_sp500 is not None:
+            params["is_s_p_500"] = str(is_sp500).lower()
+        data = self._get("/api/stock-screener", params)
+        return _unwrap(data)
+
+    def flow_alerts(
+        self,
+        tickers: list[str] | None = None,
+        rule_names: list[str] | None = None,
+        is_call: bool | None = None,
+        min_premium: int | None = None,
+        limit: int = 500,
+    ) -> list[dict]:
+        """Option flow alert hits for large block and unusual activity rules.
+
+        GET /api/option-flow-alerts
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if tickers:
+            params["ticker_symbol"] = ",".join(tickers)
+        if rule_names:
+            params["rule_name"] = rule_names  # list → bracket params via _build_qs
+        if is_call is not None:
+            params["is_call"] = str(is_call).lower()
+        if min_premium is not None:
+            params["min_premium"] = min_premium
+        data = self._get("/api/option-flow-alerts", params)
+        return _unwrap(data)
+
+
+def _build_qs(params: dict) -> str:
+    """URL-encode params; list values become repeated bracket params (key[]=v)."""
+    parts = []
+    for k, v in params.items():
+        if v is None:
+            continue
+        if isinstance(v, list):
+            for item in v:
+                parts.append((f"{k}[]", str(item)))
+        else:
+            parts.append((k, str(v)))
+    return urllib.parse.urlencode(parts)
 
 
 def _unwrap(payload: Any) -> list[dict]:

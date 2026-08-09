@@ -75,12 +75,26 @@ def evaluate(rows, min_events):
     dp_vals = [_f(r["dp_premium"]) for r in rows if _f(r["dp_premium"])]
     dp_med = statistics.median(dp_vals) if dp_vals else None
 
+    def _pec(r):
+        return r.get("pec_signal") in ("True", "true", "1")
+
+    def _dp_accum(r):
+        v = _f(r.get("dp_at_or_above_close"))
+        return v is not None and v > 0.5
+
     checks = {
         "euphoria": lambda r: r.get("flow_state") == "euphoria",
         "capitulation": lambda r: r.get("flow_state") == "capitulation",
         "dp_surge": lambda r: dp_med and (_f(r.get("dp_premium")) or 0) > 2 * dp_med,
         "gex_negative": lambda r: (_f(r.get("gex_net_gamma")) is not None
                                    and _f(r.get("gex_net_gamma")) < 0),
+        # Pre-registered post-earnings capitulation checks.
+        # These fire once pec_scan.py has logged stub rows and subsequent
+        # whale_log.py runs have added close prices to the journal.
+        "pec_signal": lambda r: _pec(r),
+        "pec_with_dp": lambda r: _pec(r) and _dp_accum(r),
+        "pec_full": lambda r: (_pec(r) and _dp_accum(r)
+                               and r.get("flow_state") == "capitulation"),
     }
 
     report = {}
@@ -127,6 +141,7 @@ def main(argv=None):
                   + "  ".join(f"{h}d: {lines[h]}" for h in HORIZONS))
     print("\nRule written in advance: a signal is REAL only if the same-sign edge shows at "
           ">=2 horizons with n>=10 pooled across tickers; otherwise it dies like the others.")
+    print("pec_* checks require pec_signal column populated via pec_scan.py + whale_log.py.")
     return 0
 
 
