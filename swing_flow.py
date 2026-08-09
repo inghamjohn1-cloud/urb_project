@@ -128,8 +128,8 @@ def normalize_alert(row: dict, today: _dt.date | None = None) -> dict | None:
     }
 
 
-def classify_premium(a: dict) -> tuple[float, float, float]:
-    """Split one alert's premium into (bullish, bearish, unsided).
+def classify_premium(a: dict) -> dict[str, float]:
+    """Split one alert's premium by direction and by whether it crossed the spread.
 
     Direction is a function of BOTH the option type and the side of the spread
     the trade printed on — buying and selling the same contract are opposite
@@ -144,24 +144,37 @@ def classify_premium(a: dict) -> tuple[float, float, float]:
     falls back to the option type (call = bullish, put = bearish) and is
     returned separately as `unsided` — the caller exposes it as
     `unsided_share` so a mid-market-dominated name can be discounted.
+
+    Returns `bullish`/`bearish` (inclusive of their unsided share) plus
+    `bullish_sided`/`bearish_sided`, which count only premium that actually
+    crossed the spread. The sided figures are what the aggression sub-score
+    measures: a mid-market print expresses a view but nobody paid up for it.
     """
     is_call = a["side"] == "call"
     ask, bid = a["ask_prem"], a["bid_prem"]
 
+    # Premium that crossed the spread, attributed to the view it expresses.
     if is_call:
-        bullish, bearish = ask, bid
+        bullish_sided, bearish_sided = ask, bid
     else:
-        bullish, bearish = bid, ask
+        bullish_sided, bearish_sided = bid, ask
 
     # Whatever the ask/bid split does not account for printed mid-market.
     unsided = max(0.0, a["premium"] - (ask + bid))
+    bullish, bearish = bullish_sided, bearish_sided
     if unsided > 0:
         if is_call:
             bullish += unsided
         else:
             bearish += unsided
 
-    return bullish, bearish, unsided
+    return {
+        "bullish": bullish,
+        "bearish": bearish,
+        "unsided": unsided,
+        "bullish_sided": bullish_sided,
+        "bearish_sided": bearish_sided,
+    }
 
 
 def alert_passes(a: dict, today: _dt.date | None = None) -> tuple[bool, str]:
@@ -198,11 +211,13 @@ def aggregate_alerts(alerts: list[dict]) -> dict[str, dict]:
             "call_premium": 0.0,
             "put_premium": 0.0,
             "total_premium": 0.0,
-            "bullish_premium": 0.0,      # ask-side calls + bid-side puts
-            "bearish_premium": 0.0,      # bid-side calls + ask-side puts
-            "unsided_premium": 0.0,      # printed mid-market, side unknowable
-            "aggressive_premium": 0.0,   # lifted the offer (either type)
-            "passive_premium": 0.0,      # rested on / hit the bid
+            "bullish_premium": 0.0,        # ask-side calls + bid-side puts
+            "bearish_premium": 0.0,        # bid-side calls + ask-side puts
+            "unsided_premium": 0.0,        # printed mid-market, side unknowable
+            "bullish_sided_premium": 0.0,  # of the bullish premium, what crossed
+            "bearish_sided_premium": 0.0,  # of the bearish premium, what crossed
+            "aggressive_premium": 0.0,     # set once direction is known
+            "passive_premium": 0.0,        # directional premium that never crossed
             "opening_premium": 0.0,
             "sweep_premium": 0.0,
             "floor_premium": 0.0,
@@ -225,15 +240,12 @@ def aggregate_alerts(alerts: list[dict]) -> dict[str, dict]:
             t["put_premium"] += a["premium"]
 
         # Directional attribution: option type AND side of the spread.
-        bull, bear, unsided = classify_premium(a)
-        t["bullish_premium"] += bull
-        t["bearish_premium"] += bear
-        t["unsided_premium"] += unsided
-
-        # Aggression is a separate axis and is unchanged: lifting the offer is
-        # aggressive on either option type, resting on the bid is passive.
-        t["aggressive_premium"] += a["ask_prem"]
-        t["passive_premium"] += a["bid_prem"]
+        split = classify_premium(a)
+        t["bullish_premium"] += split["bullish"]
+        t["bearish_premium"] += split["bearish"]
+        t["unsided_premium"] += split["unsided"]
+        t["bullish_sided_premium"] += split["bullish_sided"]
+        t["bearish_sided_premium"] += split["bearish_sided"]
 
         if a["all_opening"]:
             t["opening_premium"] += a["premium"]
@@ -274,8 +286,29 @@ def aggregate_alerts(alerts: list[dict]) -> dict[str, dict]:
         dominant = max(t["bullish_premium"], t["bearish_premium"])
         # Coherence: 1.0 = entirely one-sided, 0.0 = perfectly split.
         t["coherence"] = ((2.0 * dominant / directional) - 1.0) if directional else 0.0
-        ag_total = t["aggressive_premium"] + t["passive_premium"]
-        t["aggression"] = (t["aggressive_premium"] / ag_total) if ag_total else None
+
+        # Aggression is measured relative to the candidate's OWN direction:
+        # the aggressive execution for a long is lifting the offer on calls or
+        # hitting the bid on puts; for a short it is the mirror image. Whoever
+        # is expressing the trade's view crossed the spread to do it.
+        #
+        #   long  -> ask-side calls + bid-side puts   (= bullish_sided)
+        #   short -> bid-side calls + ask-side puts   (= bearish_sided)
+        #
+        # The denominator is the premium betting the SAME way, not the whole
+        # book — otherwise this would just restate `coherence` and the flow
+        # score would count directional agreement twice. What is left in the
+        # denominator is the mid-market premium, which expresses the view but
+        # never paid up for it.
+        if t["direction"] == "long":
+            t["aggressive_premium"] = t["bullish_sided_premium"]
+            directional_total = t["bullish_premium"]
+        else:
+            t["aggressive_premium"] = t["bearish_sided_premium"]
+            directional_total = t["bearish_premium"]
+        t["passive_premium"] = max(0.0, directional_total - t["aggressive_premium"])
+        t["aggression"] = ((t["aggressive_premium"] / directional_total)
+                           if directional_total else None)
         t["opening_share"] = t["opening_premium"] / tot
         t["sweep_share"] = t["sweep_premium"] / tot
         t["floor_share"] = t["floor_premium"] / tot

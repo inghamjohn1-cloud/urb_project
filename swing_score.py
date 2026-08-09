@@ -121,7 +121,11 @@ def score_flow(f: dict) -> tuple[float, list[str]]:
     if f["total_premium"] >= 5_000_000:
         notes.append(f"${f['total_premium'] / 1e6:.1f}M premium")
 
-    # Aggression — paying the offer rather than resting on the bid.
+    # Aggression — of the premium betting this candidate's way, how much
+    # crossed the spread to get filled rather than printing mid-market.
+    # Direction-relative: lifting the offer on calls and hitting the bid on
+    # puts are equally aggressive expressions of a long, and vice versa for a
+    # short, so bullish and bearish candidates are scored on the same footing.
     agg = f.get("aggression")
     if agg is None:
         agg_pts = p["aggression"] * 0.4      # unknown: partial credit, not zero

@@ -40,7 +40,7 @@ FLOW = {
     "max_dte": 90,                      # above 90d the thesis is too slow
     "ideal_dte": (21, 60),              # no DTE penalty inside this band
     "min_volume_oi_ratio": 1.0,         # volume > OI hints at new positioning
-    "min_aggression_pct": 0.55,         # ask-side % for calls / bid-side for puts
+    "min_aggression_pct": 0.55,         # share of same-direction premium that crossed
     "min_alerts_for_cluster": 2,        # distinct alerts to call it repeated
     "exclude_multi_leg": True,          # spreads muddy the directional read
     "max_alert_age_days": 3,            # act on fresh flow, not last week's

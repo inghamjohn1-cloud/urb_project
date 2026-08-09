@@ -80,9 +80,15 @@ partially fail its way onto your screen.
 
   Premium that printed between the quotes can't be attributed by side, so it
   falls back to option type and is reported as `unsided_share`; above 50% the
-  candidate carries a `direction inferred` flag. This is a separate axis from
-  the aggression sub-score, which still just measures whether the offer was
-  lifted — a sold put is bullish *and* passive at the same time.
+  candidate carries a `direction inferred` flag.
+- **Aggression is direction-relative.** It measures the share of the premium
+  betting the candidate's own way that *crossed the spread* rather than
+  printing mid-market — `ask-side calls + bid-side puts` for a long, the mirror
+  for a short. Long and short books of equal quality therefore score equally;
+  under the earlier ask-side-only definition every short built from sold calls
+  scored zero aggression by construction. The denominator is same-direction
+  premium, not the whole book, so this stays independent of `coherence` and the
+  flow score doesn't count directional agreement twice.
 - **Trend conflict veto:** bullish flow is rejected if price is below the 200 EMA;
   bearish flow rejected if above it. You never take the flow's side against the
   primary trend.
@@ -104,7 +110,7 @@ partially fail its way onto your screen.
 | Sub-score | Max | Rule |
 |---|---|---|
 | Premium magnitude | 14 | Log-scaled $250k → $10M. $1M ≈ 6.2, $5M ≈ 11.9 |
-| Aggression | 8 | Ask-side % of premium. 0.55 → 0 pts, 0.90+ → full |
+| Aggression | 8 | Share of *same-direction* premium that crossed the spread. 0.55 → 0 pts, 0.90+ → full |
 | Structure | 6 | Sweep-dominated +3, floor prints +2, plus the rule-name bonus |
 | Opening | 6 | ≥50% all-opening +4, volume > OI +2 |
 | Coherence | 6 | One-sided **bullish-vs-bearish** premium, worked across ≥2 strikes and ≥2 days |

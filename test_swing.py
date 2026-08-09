@@ -356,22 +356,6 @@ class TestDirectionClassification(unittest.TestCase):
                          sold("call", premium=2e6, strike=120.0)])
         self.assertAlmostEqual(agg["coherence"], 0.0, places=6)
 
-    # -- aggression is a separate axis and must be untouched ---------------
-    def test_aggression_still_measures_lifting_the_offer(self):
-        self.assertAlmostEqual(aggregate([bought("call")])["aggression"], 1.0, places=6)
-        self.assertAlmostEqual(aggregate([sold("call")])["aggression"], 0.0, places=6)
-        # Puts included: aggression tracks the ask side regardless of type.
-        self.assertAlmostEqual(aggregate([bought("put", strike=90.0)])["aggression"],
-                               1.0, places=6)
-        self.assertAlmostEqual(aggregate([sold("put", strike=90.0)])["aggression"],
-                               0.0, places=6)
-
-    def test_aggression_is_independent_of_direction(self):
-        """A bullish sold-put prints on the bid, so it is passive but long."""
-        agg = aggregate([sold("put", strike=90.0)])
-        self.assertEqual(agg["direction"], "long")
-        self.assertAlmostEqual(agg["aggression"], 0.0, places=6)
-
     # -- the corrected label reaches the gates and the technical rules -----
     def test_corrected_direction_reaches_the_trend_veto(self):
         """Sold puts in a downtrend must now be vetoed as a LONG."""
@@ -427,6 +411,157 @@ class TestDirectionClassification(unittest.TestCase):
         c = build_candidate(agg, uptrend, {"has_data": False}, today=TODAY)
         self.assertTrue(any("direction inferred" in f for f in c.flags),
                         f"expected a mid-market flag, got {c.flags}")
+
+
+# ---------------------------------------------------------------------------
+# Direction-relative aggression
+# ---------------------------------------------------------------------------
+class TestAggression(unittest.TestCase):
+    """Aggression measures same-direction premium that crossed the spread.
+
+        long  -> ask-side calls + bid-side puts
+        short -> bid-side calls + ask-side puts
+
+    So a bullish sold-put book and a bearish sold-call book score identically,
+    which the old ask-side-only definition could not do.
+    """
+
+    # -- all four expressions are fully aggressive in their own direction --
+    def test_bought_calls_are_aggressive_for_a_long(self):
+        agg = aggregate([bought("call")])
+        self.assertEqual(agg["direction"], "long")
+        self.assertAlmostEqual(agg["aggression"], 1.0, places=6)
+
+    def test_sold_puts_are_aggressive_for_a_long(self):
+        """The fix: hitting the bid on puts is how you express a long."""
+        agg = aggregate([sold("put", strike=90.0)])
+        self.assertEqual(agg["direction"], "long")
+        self.assertAlmostEqual(agg["aggression"], 1.0, places=6)
+
+    def test_bought_puts_are_aggressive_for_a_short(self):
+        agg = aggregate([bought("put", strike=90.0)])
+        self.assertEqual(agg["direction"], "short")
+        self.assertAlmostEqual(agg["aggression"], 1.0, places=6)
+
+    def test_sold_calls_are_aggressive_for_a_short(self):
+        """The fix: hitting the bid on calls is how you express a short."""
+        agg = aggregate([sold("call")])
+        self.assertEqual(agg["direction"], "short")
+        self.assertAlmostEqual(agg["aggression"], 1.0, places=6)
+
+    # -- the symmetry this change exists to deliver ------------------------
+    def test_sold_put_long_and_sold_call_short_are_symmetric(self):
+        long_book = aggregate([sold("put", premium=4e6, strike=90.0, dte=35)])
+        short_book = aggregate([sold("call", premium=4e6, strike=110.0, dte=35)])
+
+        self.assertEqual(long_book["direction"], "long")
+        self.assertEqual(short_book["direction"], "short")
+        self.assertAlmostEqual(long_book["aggression"], short_book["aggression"], places=6)
+        self.assertAlmostEqual(long_book["coherence"], short_book["coherence"], places=6)
+
+        long_pts, _ = score_flow(long_book)
+        short_pts, _ = score_flow(short_book)
+        self.assertAlmostEqual(long_pts, short_pts, places=6,
+                               msg="identical books of opposite sign must score the same")
+
+    def test_bought_call_long_and_bought_put_short_are_symmetric(self):
+        long_book = aggregate([bought("call", premium=4e6, dte=35)])
+        short_book = aggregate([bought("put", premium=4e6, strike=90.0, dte=35)])
+        self.assertAlmostEqual(score_flow(long_book)[0], score_flow(short_book)[0],
+                               places=6)
+
+    def test_short_books_are_no_longer_structurally_penalised(self):
+        """Under the old rule a sold-call short scored 0 aggression by design."""
+        short_book = aggregate([sold("call", premium=4e6)])
+        old_style = 0.0   # ask_prem / (ask_prem + bid_prem) with ask_prem == 0
+        self.assertAlmostEqual(old_style, 0.0)
+        self.assertAlmostEqual(short_book["aggression"], 1.0, places=6)
+
+    # -- opposing premium is coherence's job, not aggression's -------------
+    def test_opposing_premium_does_not_dilute_aggression(self):
+        """A two-way book still crossed the spread on the side that won."""
+        agg = aggregate([sold("put", premium=3e6, strike=90.0),
+                         bought("put", premium=1e6, strike=85.0)])
+        self.assertEqual(agg["direction"], "long")
+        self.assertAlmostEqual(agg["aggression"], 1.0, places=6,
+                               msg="all 3M of the bullish premium crossed")
+        self.assertLess(agg["coherence"], 1.0,
+                        msg="the opposing 1M shows up in coherence instead")
+
+    def test_aggression_and_coherence_are_not_the_same_measure(self):
+        a = aggregate([bought("call", premium=2e6), sold("call", premium=1e6, strike=120.0)])
+        b = aggregate([bought("call", premium=2e6),
+                       make_alert(side="call", premium=1e6, strike=120.0,
+                                  ask_prem=0.0, bid_prem=0.0)])
+        # Same total premium, different composition: b's extra 1M printed mid.
+        self.assertAlmostEqual(a["aggression"], 1.0, places=6)
+        self.assertAlmostEqual(b["aggression"], 2.0 / 3.0, places=6)
+        self.assertGreater(b["coherence"], a["coherence"])
+
+    # -- mid-market handling preserved -------------------------------------
+    def test_mid_market_premium_is_not_aggressive(self):
+        agg = aggregate([make_alert(side="call", premium=2e6,
+                                    ask_prem=0.0, bid_prem=0.0)])
+        self.assertEqual(agg["direction"], "long")
+        self.assertAlmostEqual(agg["unsided_share"], 1.0, places=6)
+        self.assertAlmostEqual(agg["aggression"], 0.0, places=6,
+                               msg="expresses a view, but nobody paid up for it")
+
+    def test_half_crossed_half_mid_scores_one_half(self):
+        agg = aggregate([bought("call", premium=2e6),
+                         make_alert(side="call", premium=2e6, strike=120.0,
+                                    ask_prem=0.0, bid_prem=0.0)])
+        self.assertAlmostEqual(agg["aggression"], 0.5, places=6)
+        self.assertAlmostEqual(agg["passive_premium"], 2e6, places=3)
+
+    def test_partial_mid_market_on_a_put_book(self):
+        # 1.0M bid-side (bullish, crossed) + 0.2M ask-side (bearish, crossed)
+        # + 0.8M mid (bearish by option-type fallback) -> direction long.
+        agg = aggregate([make_alert(side="put", premium=2e6, strike=90.0,
+                                    ask_prem=0.2e6, bid_prem=1.0e6)])
+        self.assertEqual(agg["direction"], "long")
+        self.assertAlmostEqual(agg["aggressive_premium"], 1.0e6, places=3)
+        self.assertAlmostEqual(agg["aggression"], 1.0, places=6,
+                               msg="all bullish premium here crossed the spread")
+
+    # -- the rest of the pipeline is untouched -----------------------------
+    def test_other_flow_components_are_unchanged(self):
+        agg = aggregate([bought("call", premium=2e6, strike=110.0, dte=35),
+                         bought("call", premium=1e6, strike=115.0, dte=45, day_offset=1)])
+        self.assertAlmostEqual(agg["total_premium"], 3e6, places=3)
+        self.assertAlmostEqual(agg["sweep_share"], 1.0, places=6)
+        self.assertAlmostEqual(agg["opening_share"], 1.0, places=6)
+        self.assertEqual(agg["n_alerts"], 2)
+        self.assertEqual(agg["n_strikes"], 2)
+        self.assertEqual(agg["n_days"], 2)
+        self.assertAlmostEqual(agg["avg_dte"], 40.0, places=6)
+
+    def test_technical_and_darkpool_scores_are_unaffected(self):
+        up = ind.snapshot(make_candles(300, drift=0.0015, last_volume_mult=1.6))
+        dp = fl.aggregate_darkpool(
+            [{"premium": 8e6, "size": 80_000, "price": 100.85,
+              "nbbo_bid": 100.0, "nbbo_ask": 101.0}] * 5, up["avg_volume"])
+        crossed = aggregate([bought("call", premium=3e6, dte=35)])
+        mid = aggregate([make_alert(side="call", premium=3e6, dte=35,
+                                    ask_prem=0.0, bid_prem=0.0)])
+        a = build_candidate(crossed, up, dp, today=TODAY)
+        b = build_candidate(mid, up, dp, today=TODAY)
+        # Aggression differs, so flow differs; everything else must not.
+        self.assertGreater(a.flow_score, b.flow_score)
+        self.assertAlmostEqual(a.tech_score, b.tech_score, places=6)
+        self.assertAlmostEqual(a.dp_score, b.dp_score, places=6)
+        self.assertAlmostEqual(a.liq_score, b.liq_score, places=6)
+
+    def test_end_to_end_short_candidate_is_actionable(self):
+        """A clean sold-call short in a downtrend must now reach a real tier."""
+        down = ind.snapshot(make_candles(300, drift=-0.0015, last_volume_mult=1.6))
+        agg = aggregate([sold("call", premium=2.5e6, strike=110.0, dte=35),
+                         sold("call", premium=1.5e6, strike=115.0, dte=45, day_offset=1)])
+        c = build_candidate(agg, down, {"has_data": False}, today=TODAY)
+        self.assertEqual(c.direction, "short")
+        self.assertEqual(c.rejected, "", f"unexpected rejection: {c.rejected}")
+        self.assertIn(c.tier, ("A", "B", "C"))
+        self.assertGreater(c.stop, c.entry, "short stop must sit above entry")
 
 
 # ---------------------------------------------------------------------------
@@ -492,9 +627,23 @@ class TestScoring(unittest.TestCase):
         self.assertGreater(one_sided, two_way)
 
     def test_passive_flow_scores_below_aggressive_flow(self):
-        aggressive, _ = score_flow(aggregate([make_alert(premium=2e6, ask_prem=2e6, bid_prem=0)]))
-        passive, _ = score_flow(aggregate([make_alert(premium=2e6, ask_prem=0, bid_prem=2e6)]))
-        self.assertGreater(aggressive, passive)
+        """Crossing the spread beats printing mid-market.
+
+        Note the contrast is crossed-vs-mid, not ask-vs-bid: since aggression
+        became direction-relative, an ask-side call and a bid-side call are
+        equally aggressive expressions of opposite views and score the same.
+        """
+        crossed, _ = score_flow(aggregate([
+            make_alert(premium=2e6, ask_prem=2e6, bid_prem=0)]))
+        mid_market, _ = score_flow(aggregate([
+            make_alert(premium=2e6, ask_prem=0, bid_prem=0)]))
+        self.assertGreater(crossed, mid_market)
+
+    def test_ask_side_and_bid_side_books_of_equal_size_score_equally(self):
+        """The asymmetry the direction-relative change removed."""
+        bull, _ = score_flow(aggregate([make_alert(premium=2e6, ask_prem=2e6, bid_prem=0)]))
+        bear, _ = score_flow(aggregate([make_alert(premium=2e6, ask_prem=0, bid_prem=2e6)]))
+        self.assertAlmostEqual(bull, bear, places=6)
 
     def test_technical_score_rewards_a_clean_uptrend(self):
         up = score_technical(ind.snapshot(make_candles(300, drift=0.0015)), "long")[0]
