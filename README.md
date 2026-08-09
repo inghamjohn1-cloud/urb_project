@@ -261,6 +261,45 @@ returns 400, a body that fails validation returns 422 with the offending
 fields. `GET /health` is there to confirm the tunnel is up, and interactive API
 docs are at `http://localhost:8000/docs`.
 
+## Conviction validator
+
+`uw_validator.py` is the async half of the webhook pipeline: given a ticker off
+a TradingView alert, it asks Unusual Whales whether institutions agree before
+a trade gets priced. It needs `httpx` (`pip install -r requirements.txt`) and
+reads `UW_API_KEY`, falling back to the `UW_TOKEN` name the scanner uses.
+
+```python
+from uw_validator import UnusualWhalesValidator
+
+async with UnusualWhalesValidator() as uw:
+    if await uw.check_options_flow("TSLA", "bullish"):
+        levels = await uw.get_dark_pool_support_resistance("TSLA")
+```
+
+**`check_options_flow(ticker, direction)`** pulls `/api/option-trades/flow-alerts`,
+keeps sweeps and floor (block) prints of ≥ $250k premium with ≥ 21 DTE, and
+returns True when at least 60% of the *ask-side* premium sits on the side
+matching `direction` — calls for bullish, puts for bearish. A verdict also
+needs ≥ $500k of qualifying premium behind it, so one lone print can't confirm
+a trade. `analyze_options_flow()` returns the same verdict as a `FlowAnalysis`
+with the ratio, premium totals, and alert count.
+
+**`get_dark_pool_support_resistance(ticker)`** merges
+`/api/darkpool/{ticker}/price-levels` across the last 5 sessions and returns
+the 3 heaviest off-exchange price shelves as `DarkPoolLevel` records — the
+levels to place short credit-spread strikes behind. The endpoint serves one
+session per call, so it walks back over weekdays and skips days that return
+nothing (holidays).
+
+Both methods **raise** `UWAuthError` / `UWAPIError` rather than returning a
+falsey result when the API is unreachable — a network failure must not read as
+"the institutions disagree".
+
+This module is separate from `uw_client.py` on purpose: that one is the
+synchronous, standard-library-only client the scanner depends on, and importing
+httpx there would add a hard dependency to `scan.py`, `backtest.py`, and
+`dashboard.py`.
+
 ## Automated morning Routine
 
 A scheduled Routine regenerates the dashboard **every trading weekday at
@@ -309,6 +348,7 @@ updated.
 | `darkpool.py` | Per-ETF dark-pool block-print view (count, premium, largest block, lean) |
 | `pine/sector_rotation.pine` | TradingView Pine v6 indicator — ranking, signals, ATR levels, alerts |
 | `server.py`   | FastAPI backend — receives and validates TradingView alert webhooks |
+| `uw_validator.py` | Async UW validator — options-flow conviction + dark-pool support/resistance |
 | `to_artifact.py` | Strips a dashboard HTML to Artifact body-content for hosting on claude.ai |
 | `render_from_mcp.py`| Alternative renderer — dashboard from Unusual Whales MCP files (flow column) |
 | `collect_mcp_data.py`| Gathers Unusual Whales MCP tool-result files into a data dir |

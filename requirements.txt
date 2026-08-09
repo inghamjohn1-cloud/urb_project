@@ -5,4 +5,7 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 #
+# The async Unusual Whales validator (uw_validator.py) needs:
+httpx>=0.27
+#
 # Python 3.10+ is required (uses X | None type syntax).
