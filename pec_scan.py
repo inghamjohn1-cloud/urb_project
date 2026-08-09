@@ -5,8 +5,17 @@ Three-stage pipeline run once per trading day (after close) to find
 beaten-down stocks where post-earnings selling may be exhausted and
 institutional accumulation is beginning.
 
-  Stage 1 — Earnings screen  : stocks that reported in the last N days
-                                with a negative EPS surprise.
+Candidates are classified by why the stock is down, since the two cases are
+different trades and are tracked separately in the forward-test journal:
+
+  capitulation — the print was genuinely broken (severe EPS miss) and holders
+                 are liquidating a real deterioration.
+  overreaction — earnings were a small miss or an outright beat, yet the stock
+                 fell hard anyway; the price move outruns the result.
+
+  Stage 1 — Earnings screen  : stocks that reported in the last N days,
+                                including modest beats (--max-surprise) so
+                                overreactions are not screened out.
   Stage 2 — Flow screen      : confirm capitulation options flow and
                                 price damage vs the pre-earnings close.
   Stage 3 — Accumulation     : detect large floor/block call buying via
@@ -51,8 +60,20 @@ CANDIDATE_COLS = [
     "net_premium", "put_call_ratio", "iv_rank",
     "floor_alert_count", "repeat_hit_count", "sweep_floor_count",
     "is_sp500", "market_cap", "sector",
-    "pec_score", "pec_signal",
+    "pec_score", "pec_signal", "pec_type",
 ]
+
+# surprise_pct is EPS surprise as a percentage of the estimate, so it blows up
+# for companies with near-zero estimates (a 2c miss on a 1c estimate is -200%).
+# These cutoffs separate a genuinely broken print from a rounding-error miss.
+SEVERE_MISS_PCT = -100.0
+MODERATE_MISS_PCT = -20.0
+
+# An overreaction is a large price decline that the earnings result does not
+# justify: the print was a small miss or an outright beat, and the stock fell
+# anyway (guidance cut, multiple compression, forced selling).
+OVERREACTION_SELLOFF = -0.10
+MILD_OVERREACTION_SELLOFF = -0.05
 
 # Flow alert rules that indicate institutional accumulation.
 ACCUM_RULES = [
@@ -85,6 +106,28 @@ def _candle_date(c: dict) -> str:
     return v[:10]
 
 
+# ── PEC classification ────────────────────────────────────────────────────────
+
+def pec_type(c: dict) -> str:
+    """Classify why the stock is down: capitulation, overreaction, or mixed.
+
+    capitulation — the print itself was broken (severe EPS miss) and the stock
+                   sold off; sellers are liquidating a real deterioration.
+    overreaction — earnings were a small miss or a beat, yet the stock still
+                   fell hard; the price move is disproportionate to the result.
+    mixed        — a moderate miss with a moderate decline, or too little
+                   dislocation either way to call it.
+    """
+    selloff = _f(c.get("earnings_selloff_pct"), 0.0) or 0.0
+    surprise = _f(c.get("surprise_pct"))
+
+    if surprise is not None and surprise <= SEVERE_MISS_PCT:
+        return "capitulation"
+    if (surprise is None or surprise > MODERATE_MISS_PCT) and selloff <= MILD_OVERREACTION_SELLOFF:
+        return "overreaction"
+    return "mixed"
+
+
 # ── PEC score (0–10) ──────────────────────────────────────────────────────────
 
 def pec_score(c: dict) -> int:
@@ -98,11 +141,18 @@ def pec_score(c: dict) -> int:
     elif selloff <= -0.05:
         score += 1
 
-    # 2. EPS miss severity
-    surprise = _f(c.get("surprise_pct"), 0.0)
-    if surprise <= -5.0:
+    # 2. Earnings/price dislocation — either the print was badly broken, or it
+    #    was fine and the stock fell anyway. Both are setups; a moderate miss
+    #    matched by a moderate decline is the uninteresting middle and scores low.
+    surprise = _f(c.get("surprise_pct"))
+    if surprise is not None and surprise <= SEVERE_MISS_PCT:
         score += 2
-    elif surprise < -1.0:
+    elif surprise is None or surprise > MODERATE_MISS_PCT:
+        if selloff <= OVERREACTION_SELLOFF:
+            score += 2
+        elif selloff <= MILD_OVERREACTION_SELLOFF:
+            score += 1
+    else:
         score += 1
 
     # 3. Capitulation flow (net options premium negative + put/call elevated)
@@ -135,14 +185,15 @@ def pec_score(c: dict) -> int:
 # ── pipeline stages ───────────────────────────────────────────────────────────
 
 def stage1_earnings(client: UWClient, min_date: str, max_date: str,
-                    min_marketcap: int) -> list[dict]:
+                    min_marketcap: int, max_surprise: float) -> list[dict]:
     print(f"  Stage 1  earnings {min_date}→{max_date}, "
-          f"mktcap≥{min_marketcap/1e9:.0f}B ... ", end="", flush=True)
+          f"mktcap≥{min_marketcap/1e9:.0f}B, surprise≤{max_surprise:.0f}% ... ",
+          end="", flush=True)
     try:
         rows = client.earnings_screener(
             min_report_date=min_date,
             max_report_date=max_date,
-            max_surprise_pct=-1.0,
+            max_surprise_pct=max_surprise,
             min_marketcap=min_marketcap,
             limit=100,
         )
@@ -341,9 +392,11 @@ def build_candidates(
             "sector": fr.get("sector") or "",
             "pec_score": 0,
             "pec_signal": False,
+            "pec_type": "",
         }
         c["pec_score"] = pec_score(c)
         c["pec_signal"] = c["pec_score"] >= 6
+        c["pec_type"] = pec_type(c)
         candidates.append(c)
 
     candidates.sort(key=lambda c: c["pec_score"], reverse=True)
@@ -395,6 +448,8 @@ def write_journal_stubs(candidates: list[dict], journal_path: str) -> int:
         stub["ticker"] = c["ticker"]
         stub["close"] = c.get("close") or ""
         stub["flow_state"] = "capitulation"
+        stub["pec_signal"] = "True"
+        stub["pec_type"] = c.get("pec_type", "")
         # net_prem_5d: screener net_premium is a daily aggregate, not a 5-day
         # mean, but it confirms the capitulation direction for the verdict check.
         np = _f(c.get("net_premium"))
@@ -437,12 +492,12 @@ def update_earnings_cache(earnings_rows: list[dict],
 # ── display ───────────────────────────────────────────────────────────────────
 
 def print_table(candidates: list[dict]) -> None:
-    W = 96
+    W = 110
     print(f"\n{'─' * W}")
-    print(f"{'POST-EARNINGS CAPITULATION CANDIDATES':^{W}}")
+    print(f"{'POST-EARNINGS CAPITULATION / OVERREACTION CANDIDATES':^{W}}")
     print(f"{'─' * W}")
-    hdr = (f"{'TICKER':<8} {'SCR':>4}  {'DAYS':>4}  {'SELLOFF':>8}  "
-           f"{'SURP%':>7}  {'NET_PREM':>10}  {'PCR':>5}  "
+    hdr = (f"{'TICKER':<8} {'SCR':>4}  {'TYPE':<13}  {'DAYS':>4}  {'SELLOFF':>8}  "
+           f"{'SURP%':>8}  {'NET_PREM':>10}  {'PCR':>5}  "
            f"{'ALERTS':>6}  {'SECTOR':<22}")
     print(hdr)
     print("─" * W)
@@ -462,15 +517,19 @@ def print_table(candidates: list[dict]) -> None:
         sig = " ◆" if c["pec_signal"] else "  "
         days = c.get("days_since_earnings")
         days_s = str(days) if days is not None else "?"
-        print(f"{c['ticker']:<8} {c['pec_score']:>3}{sig}  {days_s:>4}  "
-              f"{selloff:>8}  {surp:>7}  {net_p:>10}  {pcr_s:>5}  "
+        print(f"{c['ticker']:<8} {c['pec_score']:>3}{sig}  "
+              f"{c.get('pec_type',''):<13}  {days_s:>4}  "
+              f"{selloff:>8}  {surp:>8}  {net_p:>10}  {pcr_s:>5}  "
               f"{alerts:>6}  {c.get('sector',''):<22}")
 
     print("─" * W)
     signals = [c for c in candidates if c["pec_signal"]]
+    by_type = {t: sum(1 for c in candidates if c.get("pec_type") == t)
+               for t in ("capitulation", "overreaction", "mixed")}
     print(f"\n◆ = signal (score ≥ 6)   "
           f"{len(signals)} signal{'s' if len(signals) != 1 else ''} "
-          f"of {len(candidates)} candidates")
+          f"of {len(candidates)} candidates   "
+          + "  ".join(f"{t}={n}" for t, n in by_type.items() if n))
 
     if signals:
         print("\nHIGH-CONVICTION SETUPS:")
@@ -480,8 +539,12 @@ def print_table(candidates: list[dict]) -> None:
                   if c.get("earnings_selloff_pct") != "" else "n/a")
             sp = (f"{c['surprise_pct']:.1f}%"
                   if c.get("surprise_pct") != "" else "n/a")
+            verdict = ("price move not justified by the print"
+                       if c.get("pec_type") == "overreaction"
+                       else "sellers liquidating a broken print")
             print(f"  {c['ticker']:6s} — {days}d post-print  "
-                  f"{sf} selloff vs {sp} EPS miss  score {c['pec_score']}/10")
+                  f"{sf} selloff vs {sp} EPS surprise  score {c['pec_score']}/10  "
+                  f"[{c.get('pec_type','')}: {verdict}]")
 
         print("\nTo log these tickers into the forward-test journal with full flow history,")
         print("fetch each ticker's OHLC (get_ticker_ohlc_latest_or_date, ≥70 rows) then:")
@@ -502,6 +565,9 @@ def main(argv=None):
                     help="minimum price decline to qualify (default 0.05 = 5%%)")
     ap.add_argument("--min-marketcap", type=int, default=2_000_000_000,
                     help="minimum market cap (default 2 000 000 000 = $2B)")
+    ap.add_argument("--max-surprise", type=float, default=15.0,
+                    help="max EPS surprise %% to include (default 15; above 0 "
+                         "so beats that still sold off are caught)")
     ap.add_argument("--output", default="logs/pec_candidates.csv",
                     help="candidates CSV output path")
     ap.add_argument("--journal", default="logs/whale_journal.csv",
@@ -526,7 +592,8 @@ def main(argv=None):
         print(f"error: {e}", file=sys.stderr)
         return 1
 
-    e_rows = stage1_earnings(client, min_date, today, args.min_marketcap)
+    e_rows = stage1_earnings(client, min_date, today, args.min_marketcap,
+                             args.max_surprise)
     if not e_rows:
         print("No earnings data returned — check credentials or date range.")
         return 0

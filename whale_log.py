@@ -27,7 +27,8 @@ import sys
 COLUMNS = ["date", "ticker", "close", "ret_21d", "ret_63d",
            "net_prem_5d", "flow_z", "flow_state",
            "dp_prints", "dp_premium", "dp_largest", "dp_at_or_above_close",
-           "gex_call_gamma", "gex_put_gamma", "gex_net_gamma"]
+           "gex_call_gamma", "gex_put_gamma", "gex_net_gamma",
+           "pec_signal", "pec_type"]
 
 
 def _f(v):

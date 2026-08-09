@@ -95,6 +95,12 @@ def evaluate(rows, min_events):
         "pec_with_dp": lambda r: _pec(r) and _dp_accum(r),
         "pec_full": lambda r: (_pec(r) and _dp_accum(r)
                                and r.get("flow_state") == "capitulation"),
+        # Split the signal by why the stock is down. Registered in advance so
+        # the two theses stand or fall on their own numbers: a broken print
+        # being liquidated is a different trade from a price move the earnings
+        # never justified, and pooling them would hide whichever one works.
+        "pec_capitulation": lambda r: _pec(r) and r.get("pec_type") == "capitulation",
+        "pec_overreaction": lambda r: _pec(r) and r.get("pec_type") == "overreaction",
     }
 
     report = {}
@@ -137,7 +143,7 @@ def main(argv=None):
         report, n = evaluate(by_ticker[t], args.min_events)
         print(f"── {t} ({n} logged days)")
         for sig, (total, lines) in report.items():
-            print(f"   {sig:<13} events={total:<3} "
+            print(f"   {sig:<17} events={total:<3} "
                   + "  ".join(f"{h}d: {lines[h]}" for h in HORIZONS))
     print("\nRule written in advance: a signal is REAL only if the same-sign edge shows at "
           ">=2 horizons with n>=10 pooled across tickers; otherwise it dies like the others.")
