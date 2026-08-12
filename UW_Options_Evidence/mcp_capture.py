@@ -185,7 +185,16 @@ if __name__ == "__main__":
     if cmd == "digest":
         digest()
     elif cmd == "flow":
-        print(json.dumps(capture_flow(sys.argv[2], sys.argv[3])["tracked"], indent=2))
+        r = capture_flow(sys.argv[2], sys.argv[3])
+        # compact one-line-per-strike summary; full detail goes to the JSONL
+        print(f"{r['obs']} rows={r['strike_rows']} src_ts_max={r['source_ts_max']}")
+        for s in TRACKED_STRIKES:
+            t = r["tracked"].get(s)
+            if not t:
+                continue
+            net = (t["call_premium_ask_side"] or 0) - (t["call_premium_bid_side"] or 0)
+            print(f"  {s:>6} call_vol={t['call_volume']:>7} "
+                  f"net_call_ask_minus_bid={net/1e6:+7.2f}M")
     elif cmd == "gex":
         print(json.dumps(capture_gex(sys.argv[2], sys.argv[3]), indent=2))
     else:

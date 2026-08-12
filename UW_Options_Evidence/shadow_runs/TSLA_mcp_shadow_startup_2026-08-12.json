@@ -1,0 +1,80 @@
+{
+  "captured_at": "2026-08-12T17:50Z",
+  "plane": "mcp",
+  "ticker": "TSLA",
+  "greek_exposure": {
+    "label": "DAILY-STRUCTURAL",
+    "note": "static within session; date-only stamp; never built into an intraday series",
+    "probe_file": "shadow_runs/TSLA_mcp_shadow_gex_2026-08-12.jsonl"
+  },
+  "open_interest": {
+    "label": "OVERNIGHT-CONFIRMED",
+    "note": "prior-day / post-OCC; no intraday component",
+    "curr_date": [
+      "2026-08-12"
+    ],
+    "last_date": [
+      "2026-08-11"
+    ],
+    "rows": 14,
+    "raw_path": "shadow_runs/raw/TSLA_open_interest_changes_startup.json",
+    "top_oi_builds": [
+      {
+        "contract": "TSLA260812C00335000",
+        "last_oi": 4066,
+        "curr_oi": 10044,
+        "oi_diff_plain": 5978,
+        "oi_change_pct": 147.0
+      },
+      {
+        "contract": "TSLA261016P00330000",
+        "last_oi": 4605,
+        "curr_oi": 10407,
+        "oi_diff_plain": 5802,
+        "oi_change_pct": 126.0
+      },
+      {
+        "contract": "TSLA260812C00340000",
+        "last_oi": 4716,
+        "curr_oi": 10186,
+        "oi_diff_plain": 5470,
+        "oi_change_pct": 116.0
+      },
+      {
+        "contract": "TSLA260812P00335000",
+        "last_oi": 388,
+        "curr_oi": 4933,
+        "oi_diff_plain": 4545,
+        "oi_change_pct": 1171.4
+      },
+      {
+        "contract": "TSLA260814P00327500",
+        "last_oi": 1510,
+        "curr_oi": 4950,
+        "oi_diff_plain": 3440,
+        "oi_change_pct": 227.8
+      },
+      {
+        "contract": "TSLA260812C00332500",
+        "last_oi": 1716,
+        "curr_oi": 4842,
+        "oi_diff_plain": 3126,
+        "oi_change_pct": 182.2
+      },
+      {
+        "contract": "TSLA260814P00330000",
+        "last_oi": 2359,
+        "curr_oi": 5394,
+        "oi_diff_plain": 3035,
+        "oi_change_pct": 128.7
+      },
+      {
+        "contract": "TSLA260812C00337500",
+        "last_oi": 1909,
+        "curr_oi": 4848,
+        "oi_diff_plain": 2939,
+        "oi_change_pct": 154.0
+      }
+    ]
+  }
+}
