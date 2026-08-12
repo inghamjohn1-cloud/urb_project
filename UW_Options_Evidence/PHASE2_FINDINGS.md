@@ -13,8 +13,8 @@ ran on the MCP plane instead of REST.
 | | |
 |---|---|
 | Plane | MCP (Claude "Unusual Whales" connector), **not** REST |
-| Window | 2026-08-12, 17:40Z → 19:47Z (2h 07m), regular session |
-| Flow observations | **13** (T5 → T17), ~10 min spacing, 201 strikes each |
+| Window | 2026-08-12, 17:40Z → 20:02Z (2h 22m), regular session + post-close |
+| Flow observations | **15** (T5 → T19), ~10 min spacing, 201 strikes each |
 | GEX staticness probes | 2 (17:41Z, 19:47Z) |
 | Overnight OI context | 1 (startup) |
 | Spot over window | ~$325.89 (17:36Z) → **$327.25** (19:43Z), +0.4% |
@@ -113,6 +113,42 @@ Three strikes (332.5, 335, 340) changed sign or direction mid-window, with the
 transition clustering around T10 (18:37Z). This is FLOW pressure only. It
 carries **no** gamma interpretation and no verdict.
 
+### 3.5 `flow_per_strike` ask/bid components update NON-ATOMICALLY — new, and it matters most
+
+The single most operationally important finding of the run, caught only because
+the capture continued past the close.
+
+At T18 (19:58Z) strike 340 showed net ask-minus-bid of **−0.70M**, against
+−3.08M ten minutes earlier. Taken alone that reads as the largest single-interval
+move of the session. It was not a move. It was an artifact, and it reverted:
+
+| Obs | ask_side | bid_side | net | call_vol |
+|---|---|---|---|---|
+| T17 19:47 | 5.71M | 8.78M | −3.08M | 68,730 |
+| T18 19:58 | **8.17M** (+2.46) | 8.87M (+0.09) | **−0.70M** | 70,216 |
+| T19 20:02 | 8.18M (+0.01) | **11.31M** (+2.44) | −3.13M | 70,856 |
+
+The ask-side counter took on ~+2.46M while the bid-side counter had not yet
+moved; by the next pull the bid side took on a near-identical ~+2.44M and net
+returned to its prior level. **The two sides of a single strike are not
+guaranteed mutually consistent at read time.**
+
+Why this is serious: `flow_pressure_migration` is computed from exactly these two
+fields. A single observation can therefore produce a large, entirely spurious
+pressure excursion. Nothing about the payload flags the inconsistency — the row
+carries a normal timestamp and a plausible volume.
+
+**Implication for the evidence layer.** A single-observation net reading is not
+trustworthy on its own. Any excursion should be corroborated against the
+following observation before it is treated as real, and a same-magnitude,
+opposite-side revert on the next pull should be classified as a partial update
+rather than flow. This is a detection rule, not an interpretation rule — it adds
+no verdict.
+
+This also argues the finding generalises beyond the close: nothing observed ties
+the behaviour specifically to end-of-session, it is simply where a large enough
+print made it visible.
+
 ## 4. What is still open
 
 These require a valid REST token **and** the poller, on a machine that has both.
@@ -138,7 +174,12 @@ cost question but does not settle cadence, which needs the live throttling data.
    complete section 4 from the telemetry.
 3. Add `pull_ts` to observation records first (§3.1) so freshness is stored
    rather than observed.
-4. Phase 3 wiring stays **not approved** until a clean live REST shadow exists.
+4. Add the §3.5 corroboration rule before any pressure excursion is surfaced
+   anywhere. On the evidence of this run, a single-pull net reading can be wrong
+   by ~2.4M on one strike. At a 45s cadence the partial-update window will be
+   crossed *more* often than at 10 min, not less — so this needs handling before
+   the REST shadow, not after.
+5. Phase 3 wiring stays **not approved** until a clean live REST shadow exists.
 
 ## 6. Rules honoured
 
