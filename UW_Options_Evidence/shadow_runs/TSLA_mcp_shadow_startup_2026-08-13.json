@@ -1,0 +1,80 @@
+{
+  "captured_at": "2026-08-13T13:31Z",
+  "plane": "mcp",
+  "ticker": "TSLA",
+  "open_interest": {
+    "label": "OVERNIGHT-CONFIRMED",
+    "note": "prior-day/post-OCC; this update reflects the 2026-08-12 session",
+    "curr_date": [
+      "2026-08-13"
+    ],
+    "last_date": [
+      "2026-08-12"
+    ],
+    "rows": 14,
+    "raw_path": "shadow_runs/raw/TSLA_open_interest_changes_2026-08-13.json",
+    "top_oi_builds": [
+      {
+        "contract": "TSLA260814C00325000",
+        "last_oi": 6738,
+        "curr_oi": 14579,
+        "oi_diff_plain": 7841
+      },
+      {
+        "contract": "TSLA260814C00327500",
+        "last_oi": 4218,
+        "curr_oi": 11011,
+        "oi_diff_plain": 6793
+      },
+      {
+        "contract": "TSLA260817C00327500",
+        "last_oi": 309,
+        "curr_oi": 6635,
+        "oi_diff_plain": 6326
+      },
+      {
+        "contract": "TSLA260814C00330000",
+        "last_oi": 9397,
+        "curr_oi": 12797,
+        "oi_diff_plain": 3400
+      },
+      {
+        "contract": "TSLA260814P00320000",
+        "last_oi": 3280,
+        "curr_oi": 6543,
+        "oi_diff_plain": 3263
+      },
+      {
+        "contract": "TSLA260814C00332500",
+        "last_oi": 6357,
+        "curr_oi": 8900,
+        "oi_diff_plain": 2543
+      },
+      {
+        "contract": "TSLA260814P00325000",
+        "last_oi": 2286,
+        "curr_oi": 4815,
+        "oi_diff_plain": 2529
+      },
+      {
+        "contract": "TSLA260814C00335000",
+        "last_oi": 16997,
+        "curr_oi": 19157,
+        "oi_diff_plain": 2160
+      },
+      {
+        "contract": "TSLA260814P00322500",
+        "last_oi": 1323,
+        "curr_oi": 3221,
+        "oi_diff_plain": 1898
+      },
+      {
+        "contract": "TSLA260817C00325000",
+        "last_oi": 283,
+        "curr_oi": 2142,
+        "oi_diff_plain": 1859
+      }
+    ]
+  },
+  "confirmation_note": "Strike-level only. flow_per_strike aggregates across ALL expiries for a strike, so yesterday's strike-level flow cannot be attributed to a specific expiry. The correspondence below is at strike level, not contract level."
+}

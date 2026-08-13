@@ -39,8 +39,10 @@ TRACKED_STRIKES = ["325", "327.5", "330", "332.5", "335", "337.5", "340"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 RUNS = os.path.join(HERE, "shadow_runs")
 RAW = os.path.join(RUNS, "raw")
-FLOW_JSONL = os.path.join(RUNS, "TSLA_mcp_shadow_flow_2026-08-12.jsonl")
-GEX_JSONL = os.path.join(RUNS, "TSLA_mcp_shadow_gex_2026-08-12.jsonl")
+def _jsonl(kind: str, day: str) -> str:
+    """Per-trading-day series file. The day comes from the payload, never from
+    the wall clock, so a capture can never land in the wrong day's file."""
+    return os.path.join(RUNS, f"TSLA_mcp_shadow_{kind}_{day}.jsonl")
 
 
 def _norm(strike: str) -> str:
@@ -117,7 +119,9 @@ def capture_flow(spill: str, label: str) -> dict:
         },
     }
     rec.update(_archive(spill, label, "flow_per_strike"))
-    with open(FLOW_JSONL, "a") as fh:
+    day = rec["date"] or (stamps[-1][:10] if stamps else "unknown")
+    rec["series_day"] = day
+    with open(_jsonl("flow", day), "a") as fh:
         fh.write(json.dumps(rec) + "\n")
     return rec
 
@@ -137,7 +141,9 @@ def capture_gex(spill: str, label: str) -> dict:
         "note": "staticness probe only; GEX can never be made an intraday series",
     }
     rec.update(_archive(spill, label, "greek_exposure_by_strike"))
-    with open(GEX_JSONL, "a") as fh:
+    day = (rows[0].get("date") if rows else None) or "unknown"
+    rec["series_day"] = day
+    with open(_jsonl("gex", day), "a") as fh:
         fh.write(json.dumps(rec) + "\n")
     return rec
 
@@ -148,8 +154,8 @@ def _read(path: str) -> list:
     return [json.loads(l) for l in open(path) if l.strip()]
 
 
-def digest() -> None:
-    flows = _read(FLOW_JSONL)
+def digest(day: str = "2026-08-12") -> None:
+    flows = _read(_jsonl("flow", day))
     print(f"flow observations: {len(flows)}")
     for r in flows:
         print(f"  {r['obs']}  rows={r['strike_rows']}  src_ts_max={r['source_ts_max']}")
@@ -168,7 +174,7 @@ def digest() -> None:
             print(f"    {s:>6}  net {na/1e6:+7.2f}M -> {nb/1e6:+7.2f}M  "
                   f"(delta {(nb-na)/1e6:+6.2f}M)   call_vol {dv:+d}")
 
-    gex = _read(GEX_JSONL)
+    gex = _read(_jsonl("gex", day))
     if gex:
         print(f"\nGEX staticness probe: {len(gex)} observation(s)")
         digs = {r["payload_sha256"] for r in gex}
@@ -183,7 +189,7 @@ def digest() -> None:
 if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "digest":
-        digest()
+        digest(sys.argv[2] if len(sys.argv) > 2 else "2026-08-12")
     elif cmd == "flow":
         r = capture_flow(sys.argv[2], sys.argv[3])
         # compact one-line-per-strike summary; full detail goes to the JSONL
