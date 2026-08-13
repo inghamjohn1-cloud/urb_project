@@ -190,3 +190,112 @@ cost question but does not settle cadence, which needs the live throttling data.
 - No combined score, no dark-pool integration, no Phase 3 wiring.
 - The local Phase-1/2 implementation was **not** recreated, so no divergent copy
   exists.
+
+---
+
+# Addendum — second session captured (TSLA, 2026-08-13)
+
+A second full session was captured on the same MCP plane, from the open to
+post-close. It confirms the day-1 findings and adds two that day 1 could not
+produce.
+
+## A1. What ran
+
+| | |
+|---|---|
+| Window | 2026-08-13, 13:38Z → 20:04Z (full session + post-close) |
+| Flow observations | **39** (D2_T1 → D2_T39), ~10 min spacing |
+| Day-over-day GEX | 1 snapshot (first ever taken) |
+| Overnight OI | 1 snapshot, closing the day-1 confirmation loop |
+
+Combined across both sessions: **54 flow observations**, all raw payloads retained.
+
+## A2. The overnight confirmation loop closed — NEW
+
+The 2026-08-13 OI update (`last_date` 08-12 → `curr_date` 08-13) reflects the
+session captured on day 1. The two largest OI builds were calls at **325
+(+7,841)** and **327.5 (+6,793)** — the same two strikes that carried the
+strongest and fastest-growing net ask-side call flow pressure through day 1.
+
+Day-1 intraday flow became real open positioning overnight. This is the first
+time the evidence layer's flow → OI loop has been closed with live data.
+
+**Limit:** strike-level only. `flow_per_strike` aggregates across all expiries,
+so day-1 flow cannot be attributed to the 08-14 contracts that built the OI.
+
+## A3. Day-over-day GEX measured — NEW
+
+Net GEX (call+put) change, 08-12 → 08-13, concentrated at the low end of the band:
+
+| Strike | 08-12 | 08-13 | Δ |
+|---|---|---|---|
+| 330 | −15,982 | +29,927 | **+45,910** |
+| 327.5 | +5,430 | +42,689 | **+37,260** |
+| 325 | +5,527 | +39,440 | **+33,912** |
+| 340 | +47,295 | +33,240 | −14,055 |
+
+The largest GEX increases land on the same three strikes as the overnight OI
+build and day-1 flow pressure.
+
+**Confound:** the 08-12 0DTE contracts expired at day-1's close, so an unknown
+share of this change is expiry roll-off rather than new positioning. Three
+co-located signals are not evidence that one explains another.
+
+## A4. Section 3.5 rule — exercised, and corrected
+
+The partial-update rule fired on three day-2 candidates. **All three resolved as
+real flow.** Only the original day-1 case (340) has ever actually reverted.
+
+| Case | Move | Resolved |
+|---|---|---|
+| D1 340 | +2.38M on +1,486 contracts | **artifact** (reverted) |
+| D2 325 (T15) | +0.87M | real |
+| D2 330 (T26) | +2.03M on +1,238 contracts | real |
+| D2 325 (T36) | −2.25M on +1,410 contracts, **bid**-side | real |
+
+Two corrections to how §3.5 was originally stated:
+
+1. **A large net move on small volume is NOT sufficient to identify an artifact.**
+   The day-1 340 case and the day-2 330 case share that profile almost exactly
+   and resolve oppositely. The only reliable discriminator is whether the lagging
+   component takes on a matching amount at the *next* pull.
+2. **The effect is not ask-side specific.** The day-2 325 case was a bid-side
+   one-sided jump; it behaves identically.
+
+Practical consequence: **a flag is not evidence of an artifact.** The flag rate
+(4 in 54 observations) is far higher than the artifact rate (1 in 54). The rule
+is correctly conservative, but a downstream consumer must not treat "flagged" as
+"bad data" — it means "unresolved until the next observation."
+
+## A5. Day-2 flow migration, full session
+
+Net ask-minus-bid call premium, D2_T1 (13:38Z) → post-close:
+
+| Strike | open | close | Δ | call vol Δ |
+|---|---|---|---|---|
+| 330 | +0.53M | **+10.08M** | +9.55M | +86,225 |
+| 332.5 | +0.19M | +3.89M | +3.70M | +77,397 |
+| 340 | +0.02M | +2.93M | +2.91M | +228,723 |
+| 337.5 | +0.00M | +1.49M | +1.49M | +120,413 |
+| 325 | −0.13M | +1.33M | +1.45M | +18,505 |
+| 327.5 | +0.80M | +2.18M | +1.38M | +17,869 |
+| 335 | −0.03M | +0.81M | +0.84M | +161,193 |
+
+Structurally different from day 1, where 330 sat persistently negative
+(−2.5 to −3.1M) and 325 led. On day 2, 330 led decisively and every tracked
+strike closed positive.
+
+335 is the clearest volume/pressure divergence: **+161,193 contracts** for only
++0.84M of net pressure, and it held negative for 28 consecutive observations
+before flipping at 18:48Z.
+
+## A6. What is still open — unchanged
+
+Day 2 changes nothing about the REST-transport items. Request rate, 429 /
+`Retry-After` behavior, poller reliability and **best cadence** still require a
+valid REST token and the poller. The ~10 min MCP spacing cannot answer a 30–60s
+cadence question.
+
+Recommendation §5 item 4 is reinforced: at 45s the partial-update window is
+crossed more often than at 10 min, so the corroboration rule must exist before
+the REST shadow runs.
