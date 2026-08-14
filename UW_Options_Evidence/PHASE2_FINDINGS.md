@@ -299,3 +299,41 @@ cadence question.
 Recommendation §5 item 4 is reinforced: at 45s the partial-update window is
 crossed more often than at 10 min, so the corroboration rule must exist before
 the REST shadow runs.
+
+## A7. The overnight loop does NOT confirm side — correction to A2's reading
+
+The 2026-08-14 OI update (`last_date` 08-13 → `curr_date` 08-14) reflects the
+day-2 session. Before pulling it, the stated prediction was: day-2 flow was led
+decisively by strike **330** (+10.08M net call ask-minus-bid), so 330 should
+show the largest overnight OI build.
+
+**The strike prediction held. The side did not.**
+
+| Contract | last OI | curr OI | build |
+|---|---|---|---|
+| 08-14 **P** 330 | 4,357 | 10,429 | **+6,072** |
+| 08-14 **P** 335 | 2,279 | 6,964 | +4,685 |
+| 08-14 **P** 337.5 | 489 | 4,641 | +4,152 |
+| 08-14 **P** 320 | 6,543 | 10,273 | +3,730 |
+| 08-14 **C** 340 | 14,397 | 18,075 | +3,678 |
+
+Strike 330 carries the largest build, matching the flow leader. But it is a
+**put** build, while the day-2 measure was **call**-side pressure. Four of the
+top five builds are puts.
+
+**This materially weakens the A2 reading.** On day 1 → 2 the largest builds were
+*calls* at 325/327.5, matching call-side flow, which invited a directional
+"call flow becomes call OI" interpretation. Day 2 → 3 breaks that: same
+strike-level correspondence, opposite side. Two readings survive:
+
+1. Activity concentrates at a strike regardless of side (spreads, straddles,
+   hedges all book at one strike), so strike-level co-location is expected and
+   carries no directional content.
+2. The day-1 side agreement was coincidence in a sample of one.
+
+Nothing here distinguishes them. What is now established is narrower than A2
+implied: **the loop confirms strike, not side.** Any downstream use must not
+read call-side flow pressure as predicting call-side positioning.
+
+This is why A2 was written with a strike-level-only limit rather than a
+directional claim — that caution turned out to be load-bearing one session later.

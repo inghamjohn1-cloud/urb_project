@@ -1,0 +1,76 @@
+{
+  "captured_at": "2026-08-14T15:44Z",
+  "plane": "mcp",
+  "ticker": "TSLA",
+  "open_interest": {
+    "label": "OVERNIGHT-CONFIRMED",
+    "curr_date": [
+      "2026-08-14"
+    ],
+    "last_date": [
+      "2026-08-13"
+    ],
+    "reflects_session": "2026-08-13 (day 2)",
+    "rows": 14,
+    "raw_path": "shadow_runs/raw/TSLA_open_interest_changes_2026-08-14.json",
+    "top_builds": [
+      {
+        "contract": "TSLA260814P00330000",
+        "side": "put",
+        "last_oi": 4357,
+        "curr_oi": 10429,
+        "oi_diff_plain": 6072
+      },
+      {
+        "contract": "TSLA260814P00335000",
+        "side": "put",
+        "last_oi": 2279,
+        "curr_oi": 6964,
+        "oi_diff_plain": 4685
+      },
+      {
+        "contract": "TSLA260814P00337500",
+        "side": "put",
+        "last_oi": 489,
+        "curr_oi": 4641,
+        "oi_diff_plain": 4152
+      },
+      {
+        "contract": "TSLA260814P00320000",
+        "side": "put",
+        "last_oi": 6543,
+        "curr_oi": 10273,
+        "oi_diff_plain": 3730
+      },
+      {
+        "contract": "TSLA260814C00340000",
+        "side": "call",
+        "last_oi": 14397,
+        "curr_oi": 18075,
+        "oi_diff_plain": 3678
+      },
+      {
+        "contract": "TSLA260819C00340000",
+        "side": "call",
+        "last_oi": 438,
+        "curr_oi": 3936,
+        "oi_diff_plain": 3498
+      },
+      {
+        "contract": "TSLA260814P00332500",
+        "side": "put",
+        "last_oi": 983,
+        "curr_oi": 4389,
+        "oi_diff_plain": 3406
+      },
+      {
+        "contract": "TSLA260821C00345000",
+        "side": "call",
+        "last_oi": 3523,
+        "curr_oi": 6541,
+        "oi_diff_plain": 3018
+      }
+    ],
+    "note": "Day-2 flow measure was net CALL ask-minus-bid, led by strike 330 (+10.08M). Strike 330 does show the largest overnight build (+6,072) -- but on the PUT side. Strike-level co-location held; SIDE did not. See PHASE2_FINDINGS addendum A7."
+  }
+}
