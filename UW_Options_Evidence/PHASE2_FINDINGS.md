@@ -337,3 +337,74 @@ read call-side flow pressure as predicting call-side positioning.
 
 This is why A2 was written with a strike-level-only limit rather than a
 directional claim — that caution turned out to be load-bearing one session later.
+
+---
+
+# Addendum 2 — third session captured (TSLA, 2026-08-14)
+
+## B1. What ran
+
+26 flow observations, 15:44Z → 20:03Z post-close (final data at
+`src_ts 19:59:59.963Z`). Capture started ~2h14m after the open because the
+session was already underway. Plus one overnight OI snapshot (§A7).
+
+Running total across three sessions: **80 flow observations.**
+
+## B2. Day 3 was a different regime — flat, not drifting
+
+Net ask-minus-bid call premium, D3_T1 → post-close:
+
+| Strike | open | close | Δ | call vol Δ |
+|---|---|---|---|---|
+| 340 | +7.13M | +7.77M | +0.65M | **+265,228** |
+| 335 | +9.55M | +9.71M | +0.16M | +23,885 |
+| 325 | +0.79M | +0.78M | −0.01M | +1,909 |
+| 332.5 | +0.67M | +0.23M | −0.44M | +4,897 |
+| 330 | +2.00M | +0.80M | −1.20M | +17,510 |
+| 337.5 | +1.74M | +0.35M | −1.39M | +58,306 |
+| 327.5 | −0.36M | −1.94M | −1.58M | +2,063 |
+
+Both prior sessions drifted continuously and ended with large net changes
+(day 2's 330 moved +9.55M). Day 3's largest move was −1.58M, and from T14
+onward almost no strike moved more than 0.2M per observation for two hours.
+
+The band configuration also inverted: 335 and 340 led from the first
+observation and held, where they trailed on both prior days, and 330 — day 2's
+runaway leader at +10.08M — sat near zero all session.
+
+## B3. The volume/pressure divergence, at an extreme
+
+Strike 340 took on **265,228 contracts** across the captured window while its
+net moved **+0.65M**. For scale, that single strike's day-3 volume exceeds its
+entire day-2 session total (232,244) by ~62%, and it accumulated steadily from
+111k at 15:44Z to 377k at the close.
+
+Day 2 showed the same shape at 335 (+161,193 contracts for +0.84M). Day 3 is a
+stronger instance of the same phenomenon at a different strike.
+
+This is a measurement, not a read: high volume with near-flat net ask-minus-bid
+means ask-side and bid-side premium accrued at nearly the same rate. It says
+nothing about direction and carries no gamma interpretation.
+
+## B4. Section 3.5 rule — running tally across all three sessions
+
+| | |
+|---|---|
+| Observations | 80 |
+| Flags raised | 6 |
+| Resolved **real** | 5 |
+| Resolved **artifact** | 1 (day-1 340) |
+
+Day-3 flags: 330 at T3 (real), 327.5 at T5 (real), 337.5 at T13 (real). The
+day-1 340 case remains the only confirmed partial update ever observed.
+
+This reinforces A4 unchanged: the rule is worth keeping because the one real
+artifact was large and invisible without it, but **a flag means "unresolved
+until the next pull", not "bad data".**
+
+## B5. Still open — unchanged after three sessions
+
+No REST-transport question has moved: request rate, 429 / `Retry-After`
+behaviour, poller reliability, and best cadence all still require a valid REST
+token and the poller. `UW_API_KEY` remains unset in this environment across all
+three sessions.
