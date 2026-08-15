@@ -201,6 +201,59 @@ This is a separate on-demand view (not part of the morning dashboard) because
 sector-ETF dark-pool prints are small enough to return inline rather than as
 files. Ask to have it added to a routine if you want it pushed on a schedule.
 
+## Unusual call-sweep scanner
+
+`sweeps.py` scans a single ticker's options tape for large, aggressive
+**intermarket sweeps** and ranks them by how *unusual* they are — not just how
+big. It defaults to NVDA calls over $1M.
+
+```bash
+python sweeps.py                                 # NVDA calls, $1M+, last 5 days
+python sweeps.py --ticker AMD --min-premium 500000
+python sweeps.py --type puts --lookback 3
+python sweeps.py --file tape.json                # score a saved MCP result, no token
+python sweeps.py --csv out.csv --json out.json --html sweeps.html
+```
+
+Two things break the naive `premium > 1000000` screen, and the scanner exists to
+handle both:
+
+**A sweep is not one print.** An intermarket sweep is routed to every exchange
+showing size, so one order lands on the tape as several child prints. In a
+sample NVDA tape, the Aug-28 $232.5C printed on MCRY at `18:50:10.250` and on
+XBOX 15ms later — one order, two rows. Querying the API at
+`min_premium=1000000` would have dropped *both* legs. So `sweeps.py` pulls the
+tape at a low per-leg floor (`--min-leg-premium`, default $25K) and stitches
+legs back into orders by (contract, fill side) within `--window` seconds
+(default 5), then applies the $1M threshold to the **order**.
+
+**Half of all "call sweeps" are bearish.** A call lifted at the ask is someone
+buying; a call hit on the bid is someone *selling*. In that same 4-day NVDA
+sample, 27 of 50 call sweeps were bid-side. The scanner derives direction per
+order from the fill side and totals the two sides separately, so a wall of call
+selling never reads as bullish.
+
+Each order gets a 0-100 unusualness score:
+
+| Component | Max | What it rewards |
+|-----------|-----|-----------------|
+| Notional      | 30 | Order premium, log-scaled from $100K |
+| Sweep breadth | 15 | Venues swept, then leg count |
+| Size vs OI    | 20 | Size ≥ open interest — the new-position tell |
+| Aggression    | 15 | Premium filled at or through the offer |
+| Time to expiry| 10 | Near-dated buying is urgent money |
+| Moneyness     | 10 | OTM is a leveraged bet; deep ITM is usually a hedge |
+
+Capping notional at 30 is deliberate: a $5M deep-ITM single print should not
+outrank a $1.2M sweep that hit four venues for more contracts than the strike's
+entire open interest. Repeat sweeps on the same contract are numbered
+(`#3 on this contract`) so accumulation is visible. Tune the weights in
+`score_sweep`.
+
+Expect $1M+ single-ticker sweeps to be **episodic** — often a couple a week, not
+a couple a day. When nothing clears the bar the scanner says so and shows the
+largest orders on the tape instead of printing an empty table.
+
 ## TradingView Pine Script
 
 `pine/sector_rotation.pine` is a Pine v6 indicator that replicates the ranking
@@ -265,6 +318,7 @@ updated.
 | `render_from_massive.py`| Renders the dashboard from Massive aggs + live snapshot + whale layer (Routine default) |
 | `whale.py`    | Smart-money conviction from Unusual Whales sector data (flow + accumulation) |
 | `darkpool.py` | Per-ETF dark-pool block-print view (count, premium, largest block, lean) |
+| `sweeps.py`   | Unusual call/put sweep scanner — stitches child legs into orders, scores them |
 | `pine/sector_rotation.pine` | TradingView Pine v6 indicator — ranking, signals, ATR levels, alerts |
 | `to_artifact.py` | Strips a dashboard HTML to Artifact body-content for hosting on claude.ai |
 | `render_from_mcp.py`| Alternative renderer — dashboard from Unusual Whales MCP files (flow column) |
@@ -299,6 +353,7 @@ Built on the same Unusual Whales / market-data stack:
 - ~~**Dark-pool block view**~~ — ✅ done (`darkpool.py`).
 - ~~**Smart-money layer**~~ — ✅ done (`whale.py`: options flow + accumulation conviction, folded into the score).
 - ~~**Automated Routine**~~ — ✅ done (weekday 6 AM PT, pushes the dashboard).
+- ~~**Unusual sweep scanner**~~ — ✅ done (`sweeps.py`: per-ticker sweep stitching + scoring).
 
 ## Disclaimer
 

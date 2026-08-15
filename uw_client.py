@@ -100,6 +100,35 @@ class UWClient:
         data = self._get("/api/market/market-tide", {"date": date, "interval_5m": str(interval_5m).lower()})
         return _unwrap(data)
 
+    def option_trades(
+        self,
+        ticker: str,
+        option_type: str | None = None,
+        report_flag: str | None = None,
+        min_premium: float | None = None,
+        min_size: int | None = None,
+        newer_than: str | None = None,
+        limit: int = 500,
+    ) -> list[dict]:
+        """Tape-level option prints for a ticker (one row per execution).
+
+        GET /api/option-trades
+
+        `report_flag="sweep"` restricts to intermarket sweeps. Note that a single
+        swept order arrives here as several child prints (one per exchange), so
+        `min_premium` should stay low — the caller aggregates legs into orders.
+        """
+        params: dict[str, Any] = {
+            "ticker_symbol": ticker,
+            "type": option_type,
+            "report_flag[]": report_flag,
+            "min_premium": min_premium,
+            "min_size": min_size,
+            "newer_than": newer_than,
+            "limit": limit,
+        }
+        return _unwrap(self._get("/api/option-trades", params))
+
     def sector_etfs(self) -> list[dict]:
         """Current-day snapshot for SPY and the SPDR sector ETFs.
 
