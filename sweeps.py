@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Unusual call-sweep scanner (default: NVDA, $1M+).
+"""Unusual call-sweep scanner (default: NVDA, $400K+).
 
 Finds large, aggressive intermarket sweeps in a ticker's options tape and ranks
 them by how *unusual* they are — not merely how big.
 
 Why this is not a one-line premium filter
 -----------------------------------------
-Two things break the naive "premium > $1,000,000" screen:
+Two things break the naive "premium > threshold" screen:
 
 1. **A sweep is not one print.** An intermarket sweep is routed to every
    exchange showing size, so one order lands on the tape as several child
    prints. NVDA 2026-08-28 $232.5C printed on MCRY at 18:50:10.250 and on XBOX
-   15ms later — one $146K order, two rows. Filtering the API at
-   `min_premium=1000000` would have discarded *both* legs. So we pull the tape
-   at a low per-leg floor (`--min-leg-premium`) and stitch legs back into orders
-   by (contract, side) within a short time window, then apply the $1M threshold
-   to the *order*.
+   15ms later — one $146K order, two rows. Filtering the API at the alert
+   threshold would have discarded *both* legs. So we pull the tape at a low
+   per-leg floor (`--min-leg-premium`) and stitch legs back into orders by
+   (contract, side) within a short time window, then apply the threshold to
+   the *order*.
 
 2. **Half of all "call sweeps" are bearish.** A call lifted at the ask is
    someone buying; a call hit on the bid is someone *selling* — often closing,
@@ -29,8 +29,8 @@ exchanges hit), size relative to open interest, fill aggression, time to
 expiry, and how far out of the money the strike is. See `score_sweep`.
 
 Usage:
-    python sweeps.py                              # live: NVDA calls, $1M+
-    python sweeps.py --ticker AMD --min-premium 500000
+    python sweeps.py                              # live: NVDA calls, $400K+
+    python sweeps.py --ticker AMD --min-premium 1000000
     python sweeps.py --type puts --lookback 3
     python sweeps.py --file tape.json             # score a saved MCP result
     python sweeps.py --csv out.csv --json out.json --html sweeps.html
@@ -51,8 +51,10 @@ import sys
 from dataclasses import dataclass, field
 
 DEFAULT_TICKER = "NVDA"
-DEFAULT_MIN_PREMIUM = 1_000_000.0
-# Per-leg floor for the tape pull. Child legs of a $1M sweep are routinely
+# $400K is the practical floor on a liquid single name: at $1M, NVDA cleared
+# only one order in a four-day sample. Raise it for index/mega-cap tape.
+DEFAULT_MIN_PREMIUM = 400_000.0
+# Per-leg floor for the tape pull. Child legs of a large sweep are routinely
 # $25-50K apiece, so this has to sit well below the alert threshold.
 DEFAULT_LEG_FLOOR = 25_000.0
 # Child prints of one swept order land within milliseconds; a few seconds of
@@ -494,8 +496,8 @@ def print_report(hits: list[Sweep], orders: list[Sweep], ticker: str,
     if not hits:
         print(f"  Nothing cleared {_money(min_premium)}. Largest orders on the tape:")
         _table(orders[:8])
-        print(f"\n  $1M+ single-ticker sweeps are episodic — often a couple a week, not")
-        print(f"  a couple a day. Lower it with --min-premium 250000 to see more.\n")
+        print(f"\n  Large single-ticker sweeps are episodic — the higher the threshold, the")
+        print(f"  longer the wait. Try --min-premium {int(min_premium / 2)} or a wider --lookback.\n")
         return
 
     print(f"  {len(hits)} order(s) over {_money(min_premium)}, ranked by unusualness:")
@@ -576,8 +578,8 @@ def render_html(hits: list[Sweep], orders: list[Sweep], ticker: str,
     show = hits or orders[:10]
     empty_note = "" if hits else (
         f'<p class="empty">Nothing cleared {html.escape(_money(min_premium))} — '
-        f'showing the largest orders on the tape instead. $1M+ single-ticker sweeps '
-        f'are episodic, often a couple a week.</p>')
+        f'showing the largest orders on the tape instead. Large single-ticker sweeps '
+        f'are episodic — the higher the threshold, the longer the wait.</p>')
 
     body = []
     for s in show:
@@ -675,7 +677,7 @@ def main(argv=None) -> int:
         description="Scan a ticker's options tape for unusual large sweeps.")
     ap.add_argument("--ticker", default=DEFAULT_TICKER, help="underlying (default NVDA)")
     ap.add_argument("--min-premium", type=float, default=DEFAULT_MIN_PREMIUM,
-                    help="alert threshold per stitched order (default 1000000)")
+                    help="alert threshold per stitched order (default 400000)")
     ap.add_argument("--min-leg-premium", type=float, default=DEFAULT_LEG_FLOOR,
                     help="per-print floor for the tape pull (default 25000)")
     ap.add_argument("--type", choices=["calls", "puts", "both"], default="calls")
