@@ -34,7 +34,26 @@ import os
 import shutil
 import sys
 
+# Legacy fixed band. RETAINED so the 2026-08-12..14 series stays continuous and
+# comparable; it is no longer the primary selector.
 TRACKED_STRIKES = ["325", "327.5", "330", "332.5", "335", "337.5", "340"]
+
+# Dynamic band: strikes within +/- BAND_PCT of contemporaneous spot, chosen from
+# the strikes actually present in the payload (so it adapts to strike spacing).
+# 0.025 comes from the 2026-08-14 investigation: spot +/-2.5% covered 100% of
+# that session's 335.33-351.26 range, against 36% for the fixed band.
+BAND_PCT = 0.025
+
+
+def _dynamic_strikes(rows, spot: float, pct: float = BAND_PCT) -> list:
+    """Strikes present in the payload within +/- pct of spot, ascending."""
+    lo, hi = spot * (1 - pct), spot * (1 + pct)
+    out = []
+    for r in rows:
+        s = _num(r.get("strike"))
+        if s is not None and lo <= s <= hi:
+            out.append(_norm(r.get("strike")))
+    return sorted(set(out), key=float)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RUNS = os.path.join(HERE, "shadow_runs")
@@ -75,30 +94,37 @@ def _archive(spill: str, label: str, kind: str) -> dict:
     }
 
 
-def capture_flow(spill: str, label: str) -> dict:
+def _extract(r: dict) -> dict:
+    return {
+        "call_premium": _num(r.get("call_premium")),
+        "call_premium_ask_side": _num(r.get("call_premium_ask_side")),
+        "call_premium_bid_side": _num(r.get("call_premium_bid_side")),
+        "call_volume": r.get("call_volume"),
+        "call_trades": r.get("call_trades"),
+        "put_premium": _num(r.get("put_premium")),
+        "put_premium_ask_side": _num(r.get("put_premium_ask_side")),
+        "put_premium_bid_side": _num(r.get("put_premium_bid_side")),
+        "put_volume": r.get("put_volume"),
+        "put_trades": r.get("put_trades"),
+        "timestamp": r.get("timestamp"),
+    }
+
+
+def capture_flow(spill: str, label: str, spot: float | None = None,
+                 pull_ts: str | None = None) -> dict:
     payload = json.load(open(spill))
     rows = payload.get("data", [])
     by_strike = {_norm(r.get("strike")): r for r in rows}
 
-    tracked = {}
-    for s in TRACKED_STRIKES:
-        r = by_strike.get(s)
-        if r is None:
-            tracked[s] = None
-            continue
-        tracked[s] = {
-            "call_premium": _num(r.get("call_premium")),
-            "call_premium_ask_side": _num(r.get("call_premium_ask_side")),
-            "call_premium_bid_side": _num(r.get("call_premium_bid_side")),
-            "call_volume": r.get("call_volume"),
-            "call_trades": r.get("call_trades"),
-            "put_premium": _num(r.get("put_premium")),
-            "put_premium_ask_side": _num(r.get("put_premium_ask_side")),
-            "put_premium_bid_side": _num(r.get("put_premium_bid_side")),
-            "put_volume": r.get("put_volume"),
-            "put_trades": r.get("put_trades"),
-            "timestamp": r.get("timestamp"),
-        }
+    # legacy fixed band, kept for continuity with 2026-08-12..14
+    tracked = {s: (_extract(by_strike[s]) if s in by_strike else None)
+               for s in TRACKED_STRIKES}
+
+    # spot-centred band
+    band, dynamic = None, None
+    if spot is not None:
+        band = _dynamic_strikes(rows, spot)
+        dynamic = {s: _extract(by_strike[s]) for s in band if s in by_strike}
 
     stamps = sorted(t for t in (r.get("timestamp") for r in rows) if t)
     rec = {
@@ -110,6 +136,11 @@ def capture_flow(spill: str, label: str) -> dict:
         "strike_rows": len(rows),
         "source_ts_max": stamps[-1] if stamps else None,
         "source_ts_min": stamps[0] if stamps else None,
+        "pull_ts": pull_ts,
+        "spot": spot,
+        "band_pct": BAND_PCT if spot is not None else None,
+        "dynamic_band": band,
+        "dynamic": dynamic,
         "tracked": tracked,
         "totals": {
             "call_premium": sum(_num(r.get("call_premium")) or 0 for r in rows),
@@ -191,9 +222,22 @@ if __name__ == "__main__":
     if cmd == "digest":
         digest(sys.argv[2] if len(sys.argv) > 2 else "2026-08-12")
     elif cmd == "flow":
-        r = capture_flow(sys.argv[2], sys.argv[3])
-        # compact one-line-per-strike summary; full detail goes to the JSONL
-        print(f"{r['obs']} rows={r['strike_rows']} src_ts_max={r['source_ts_max']}")
+        from datetime import datetime, timezone
+        spot = float(sys.argv[4]) if len(sys.argv) > 4 else None
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        r = capture_flow(sys.argv[2], sys.argv[3], spot=spot, pull_ts=now)
+        print(f"{r['obs']} rows={r['strike_rows']} src_ts_max={r['source_ts_max']} "
+              f"pull_ts={r['pull_ts']} spot={r['spot']}")
+        if r["dynamic"]:
+            print(f"  DYNAMIC band (spot +/-{BAND_PCT:.1%} = "
+                  f"{spot*(1-BAND_PCT):.2f}-{spot*(1+BAND_PCT):.2f}), "
+                  f"{len(r['dynamic_band'])} strikes:")
+            for s in r["dynamic_band"]:
+                t = r["dynamic"][s]
+                net = (t["call_premium_ask_side"] or 0) - (t["call_premium_bid_side"] or 0)
+                print(f"  {s:>6} call_vol={t['call_volume']:>7} "
+                      f"net_call_ask_minus_bid={net/1e6:+7.2f}M")
+        print("  legacy fixed band:")
         for s in TRACKED_STRIKES:
             t = r["tracked"].get(s)
             if not t:
