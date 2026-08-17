@@ -408,3 +408,98 @@ No REST-transport question has moved: request rate, 429 / `Retry-After`
 behaviour, poller reliability, and best cadence all still require a valid REST
 token and the poller. `UW_API_KEY` remains unset in this environment across all
 three sessions.
+
+---
+
+# Addendum 3 — fourth session, and the dynamic band in production (TSLA, 2026-08-17)
+
+## C1. What ran
+
+36 observations, 13:58Z → 20:04Z post-close, final data at
+`src_ts 19:59:59.962Z`. First session captured on the **spot-centred dynamic
+band** (switched live at D4_T2). Running total across four sessions: **116 flow
+observations.**
+
+## C2. Freshness is now a stored quantity — recommendation 3 closed
+
+`pull_ts` is written per observation, so lag is measured rather than observed:
+
+| | |
+|---|---|
+| min | 14s |
+| median | **17s** |
+| max | 259s |
+
+The 259s outlier is the post-close pull (source frozen at 19:59:59.962Z, pulled
+20:04:18Z) and is an artifact of the close, not of the feed. Excluding it, every
+observation landed within ~25s. This closes recommendation 3 from §3.1, where
+lag was previously read at capture time and flagged as approximate.
+
+## C3. Dynamic band vs fixed band, measured live
+
+Final-observation tracked call volume: **fixed 330,681 vs dynamic 845,370 —
+2.56×.** The fixed band's two lowest strikes finished the session on 1,139 and
+~200 contracts, while 342.5 alone traded 293,352.
+
+Band size across the session: 7 strikes on 33 observations, 6 on 3.
+
+## C4. Band instability at strike boundaries — a real defect in the ±% rule
+
+Membership changed **five times**, every time at the same 332.5 boundary or the
+350 edge, driven by sub-1% spot moves:
+
+- T7 (spot 341.88): 332.5 out, 350 in
+- T8 (341.03): 350 out — present for exactly one observation
+- T9 (340.31): 332.5 back
+- T13 (341.41): 332.5 out
+- T14 (340.97): 332.5 back
+- T33 (341.10): 332.5 out
+
+A percentage window over a 2.5-point strike grid puts strike boundaries and band
+edges in near-coincidence, so a fractional spot move flips membership. This
+makes cross-observation series non-comparable at the edges.
+
+**Recommended fix (not implemented, awaiting approval):** replace ±2.5% with
+**nearest-N strikes to spot** (N=7 here). That holds width constant and shifts
+the window only when spot crosses a full strike. A hysteresis variant (enter at
+±2.5%, exit at ±3%) would also work but keeps variable width.
+
+## C5. Day-4 flow, full session
+
+Net ask-minus-bid, D4_T1 → post-close:
+
+| Strike | open | close | Δ | call vol |
+|---|---|---|---|---|
+| 342.5 | −0.39M | **+0.18M** | **+0.57M** | 293,352 |
+| 340 | −0.67M | −1.26M | −0.59M | 233,218 |
+| 347.5 | −0.45M | −1.01M | −0.56M | 64,800 |
+| 332.5 | +0.00M | −0.74M | −0.75M | 11,281 |
+| 337.5 | +0.10M | −0.69M | −0.79M | 45,803 |
+| 345 | −0.43M | −1.27M | −0.84M | 169,848 |
+| 335 | −0.10M | −1.01M | −0.91M | 27,068 |
+
+Six of seven strikes finished more negative than they started; 342.5 was the
+sole strike to improve, and the only one to finish positive, on the session's
+heaviest volume.
+
+Spot round-tripped: 340.78 open → 337.49 low → **345.45 spike at 19:15–19:30Z on
+2,077,043 shares** → 339.34 close. The spike bar carried ~3.5× neighbouring bar
+volume and moved five of seven band strikes simultaneously, each with volume
+behind it.
+
+## C6. Section 3.5 tally, four sessions
+
+116 observations, **7 flags, 6 real, 1 artifact.** Day-1 340 remains the only
+confirmed partial update.
+
+Day 4 added a mechanism worth recording: at D4_T21, strike 335 moved ~1M on
+**421 contracts** and resolved as *real* — a handful of high-premium prints. That
+produces the same surface signature as the artifact (large net move, negligible
+volume) with an opposite cause. Nothing at flag time separates them; only the
+next-pull test does.
+
+## C7. Still open
+
+Unchanged after four sessions. REST request rate, 429 / `Retry-After` behaviour,
+poller reliability and best cadence all still require a valid REST token and the
+poller. `UW_API_KEY` has been unset in this environment throughout.
