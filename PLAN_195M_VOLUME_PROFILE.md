@@ -4,9 +4,10 @@ A fully mechanical swing plan for the **195-minute** chart, driven by volume
 profile: **POC** (point of control), **VAH** (value area high), **VAL** (value
 area low). Every rule below is testable — nothing says "if it looks strong."
 
-**Status: unvalidated.** No backtest in this repo covers it (see `RESEARCH.md`
-for what has and hasn't held up here). Treat it as a hypothesis to forward-test
-on the log in §10, not as a proven edge.
+`vp195.py` implements these rules exactly and replays them over real 195m bars.
+**Read §10 before trading any of it**: run over 6 months of RGLD, the rules
+produced 11 signals and a *negative* expectancy. This is a specification and a
+research harness, not a validated edge.
 
 ---
 
@@ -15,300 +16,345 @@ on the log in §10, not as a proven edge.
 Regular-hours session = 390 minutes. **195m = exactly half a session, so you get
 two bars a day**: `09:30–12:45` and `12:45–16:00` ET.
 
-That matters for a rules plan:
-
 - **Two decision points per day**, at 12:45 and 16:00 ET. No intraday babysitting.
-- Bar 1 captures the opening auction + morning trend; bar 2 captures the
-  afternoon auction + close. Each bar's own profile is a genuine half-day
-  auction, not an arbitrary slice.
-- A 3–10 day swing = **6–20 bars**. Long enough for structure, short enough to
-  react before a daily chart would.
+- Bar 1 captures the opening auction + morning trend; bar 2 the afternoon
+  auction + close. Each bar is a genuine half-day auction, not an arbitrary slice.
+- A 3–10 day swing = **6–20 bars**.
 
 ⚠️ **Check this first**: if your feed includes pre/post market, bars will *not*
 split at 12:45 and every level below drifts. Set the chart to **RTH only** and
-confirm you see exactly two bars per day.
+confirm you see exactly two bars per day. (On RGLD, RTH is 98% of volume — the
+extended-hours rows add noise and shift every profile.)
 
 ---
 
-## 2. The three level sets
+## 2. The level tiers
 
-| Tier | Lookback | What it gives | Role |
+| Tier | Lookback | Levels | Role |
 |---|---|---|---|
-| **Bar profile (BP)** | 1 bar | `bPOC`, `bVAH`, `bVAL` from the footprint | Trigger + trailing reference |
-| **Composite value (CVA)** | rolling **20 bars** (≈2 weeks) | `cPOC`, `cVAH`, `cVAL` | **The swing structure — all entries and stops key off this** |
-| **Node map (NM)** | rolling **60 bars** (≈6 weeks) | HVNs (volume peaks), LVNs (volume valleys) | Target selection |
+| **Bar profile (BP)** | 1 bar | `bPOC`, `bVAH`, `bVAL` | Confirmation + trailing reference |
+| **Swing value (SVA)** | **6 bars** (≈3 sessions) | `sPOC`, `sVAH`, `sVAL` | **Every trigger and stop keys off this** |
+| **Composite value (CVA)** | 20 bars (≈2 weeks) | `cPOC`, `cVAH`, `cVAL` | Context, regime, and far targets |
+| **Node map (NM)** | 60 bars (≈6 weeks) | HVNs / LVNs | Final target selection |
 
-Value area = the price range containing **70%** of the profile's volume, centred
-on the POC. Use the same row size everywhere (the screenshot uses Manual 10);
-if you change it, re-derive every level.
+**Why triggers use the 6-bar swing area and not the 20-bar composite** — this is
+the single most important correction the data forced. On RGLD the 20-bar
+composite value area runs a **median 7.5% of price wide** (a $17 band on a $233
+stock, up to 28% wide after a fast move). In a trend its VAL sits an entire leg
+below price: across 232 scanned bars, a pullback in an uptrend *never once* got
+within 47% of the value width of `cVAL`. A "buy the pullback to cVAL" rule
+written against the composite can never fire. The 6-bar swing area is the value
+the **current leg** actually built, and price interacts with it constantly.
 
-**Working definitions used throughout:**
+The composite still earns its place — it sets the regime, and its far edge gives
+the third target — but it is context, not a trigger.
 
-- **Value width** `VW = cVAH − cVAL`
-- **ATR** = ATR(14) on the 195m chart
-- **Acceptance** = **two consecutive 195m closes** on the same side of a level,
-  *and* the second bar's `bPOC` on that side too. One close is a poke; a bar
-  that closes through but leaves its POC behind has not accepted.
-- **Rejection** = a bar trades through a level intrabar but closes back on the
-  original side, with `bPOC` on the original side.
-- **Value migration** = `cPOC(now) − cPOC(5 bars ago)`. Positive and rising =
-  buyers moving value up.
+**Working definitions:**
 
-**HVN vs LVN, and why targets sit where they do:** an HVN is price the market
-agreed on — it attracts and stalls price, so it's where you take money off. An
-LVN is price the market rejected — it travels fast, so never place a target
-*inside* one; put it on the far side.
+- **Swing width** `SW = sVAH − sVAL`; composite width `VW = cVAH − cVAL`.
+- **Value area** = the rows holding **70%** of volume, built the standard way:
+  start at the POC row and repeatedly annex whichever neighbouring row holds
+  more volume until 70% is enclosed. *Not* a narrowest-window search — on a
+  bimodal profile that can return a band which excludes the POC entirely (it did
+  on RGLD in April, putting `cPOC` below `cVAL`).
+- **Every composite and swing area excludes the current bar.** The level must be
+  known *before* the bar that trades through it. Include the current bar and a
+  breakout drags the level along with it, so price can never close outside its
+  own value — the rule becomes untestable.
+- **Acceptance** = **two consecutive closes** on the same side of a level, *and*
+  the second bar's `bPOC` on that side. One close is a poke; a bar that closes
+  through but leaves its POC behind has not accepted.
+- **Value migration** = `cPOC(now) − cPOC(5 bars ago)`.
+
+**HVN vs LVN:** an HVN is price the market agreed on — it attracts and stalls
+price, so it's where you take money off. An LVN is price the market rejected —
+it travels fast, so never place a target *inside* one; put it on the far side.
 
 ---
 
-## 3. Regime gate (checked before every entry — no exceptions)
+## 3. Regime gate (checked before every entry)
 
-Compute on the 195m chart at the close of each bar.
+Computed at the close of each 195m bar.
 
-**Long regime — all four true:**
-1. Close > **SMA(50)** on 195m (≈25 sessions).
-2. SMA(50) higher than it was **10 bars** ago.
+**Long regime — all three true:**
+1. Close > **SMA(20)** on 195m (≈10 sessions).
+2. SMA(20) higher than it was **10 bars** ago.
 3. **Value migrating up**: `cPOC(now) > cPOC(5 bars ago)`.
-4. `cVAL(now) ≥ cVAL(5 bars ago)` — the floor of value is not sinking.
 
-**Short regime — the exact mirror** (close below a falling SMA(50), `cPOC` and
-`cVAH` both lower than 5 bars ago).
+**Short regime — the exact mirror.** Neither → **neutral**.
 
-**Neutral / balanced — no trend trades.** If neither set is fully true, or if
-the current 20-bar CVA overlaps the CVA from 10 bars ago by **more than 75%**
-(`overlap = intersection(VW_now, VW_then) / VW_now`), the market is rotational.
-Only Setup C (§4.3) is permitted, at half size.
+Two calibration notes, both from the data rather than from taste:
 
-The screenshot's RGLD is a textbook long regime: price above a rising SMA, and
-each bar's profile stacking higher than the last — value migrating up with no
-overlap. That stair-step of non-overlapping bar profiles *is* the signal.
+- **SMA(20), not SMA(50).** A 50-bar SMA on 195m is 25 sessions; after RGLD's
+  20% June–July decline it took weeks to turn up, and the gate admitted only
+  **4.3%** of bars — that is a blackout, not a filter. SMA(20) admits 8.6%.
+- **A fourth condition was dropped.** Requiring `cVAL(now) ≥ cVAL(5 bars ago)`
+  on top of the other three changed the long-regime count by exactly zero. A
+  condition that never binds is not a safeguard, it's decoration.
+
+**Neutral is not the same as balanced.** A strict trend gate reports neutral all
+the way up a strong advance. Use the explicit test: the market is **balanced**
+when the current 20-bar CVA overlaps the CVA from 10 bars ago by **more than
+75%** (`overlap = intersection / current width`). Setups A and B are barred in a
+balanced market; Setup C *requires* one (§4.3).
 
 ---
 
 ## 4. The three setups
 
-Only one position per symbol. Never hold Setup A and Setup B in the same name.
+One position per symbol. Never hold Setup A and Setup B in the same name.
 
-### 4.1 Setup A — VAL reclaim (primary; buy the pullback in an uptrend)
+### 4.1 Setup A — swing-VAL reclaim (buy the pullback in an uptrend)
 
-The bread-and-butter trade. You are buying a pullback into the bottom of value
-that gets rejected — responsive buyers defending the low end of the range.
+Buying a pullback into the bottom of the current leg's value that gets rejected.
 
 **Conditions (all, at a 195m bar close):**
-1. Long regime per §3.
-2. Price traded **at or below `cVAL`** during the current bar or the one before.
-3. The current bar **closes back above `cVAL`**.
-4. Current bar `bPOC ≥ cVAL` (buyers, not just a wick).
-5. Bar range ≤ **2.5 × ATR** (skip climax bars — the stop is too far).
+1. Long regime (§3).
+2. Price traded **at or below `sVAL`** during this bar or the one before.
+3. This bar **closes back above `sVAL`**.
+4. This bar's `bPOC ≥ sVAL` (buyers, not just a wick).
 
-**Entry:** buy-stop at **signal bar high + 0.05**, working for the **next two
-bars only**, then cancel. If price gaps above the trigger, take the open only if
-the gap is < 0.5 × ATR above it; otherwise stand aside and wait for a new signal.
+**Entry:** buy-stop at **signal bar high + 0.05**, working the **next two bars
+only**, then cancel.
 
-**Initial stop:** `min(signal bar low, cVAL) − 0.25 × ATR`.
+**Stop:** `min(signal bar low, sVAL) − 0.25 × ATR`.
 
-**Invalidation before fill:** cancel the order if any bar **closes below `cVAL`**
-before you're filled. The setup is dead — do not re-enter until a fresh signal
-bar prints.
+**Cancel before fill** if any bar **closes below `sVAL`**. The setup is dead —
+wait for a fresh signal bar.
 
-**Targets:** T1 `cPOC` · T2 `cVAH` · T3 `cVAH + VW` (§5).
+**Targets:** T1 `sPOC` (or `sVAH` if `sPOC` is already below entry) ·
+T2 `sVAH + SW` · T3 `cVAH + VW`.
 
-### 4.2 Setup B — acceptance above VAH (continuation breakout)
+**Short mirror:** rejection at `sVAH` in a short regime.
 
-Value has broken out and been *accepted* above. You're joining an initiative
-move, not fading it.
+### 4.2 Setup B — acceptance outside swing value (continuation)
 
-**Conditions (all):**
-1. Long regime per §3.
-2. **Acceptance above `cVAH`**: two consecutive closes above `cVAH`, second
-   bar's `bPOC` above `cVAH` (§2). One-bar pokes don't count.
-3. Entry taken **one of two ways** — pick per trade, don't switch mid-trade:
-   - **B1 (momentum)**: buy-stop at the acceptance bar's high + 0.05, valid 2 bars.
-   - **B2 (retest, preferred)**: resting buy-limit at `cVAH + 0.10`, valid **4
-     bars**, cancelled if any bar closes below `cVAH`. Better fill, lower hit rate.
-4. Bar range of the acceptance bar ≤ 2.5 × ATR.
+The current leg's value has broken and been *accepted* outside.
 
-**Initial stop:** `cVAH − 0.5 × ATR`, or below the acceptance bar's `bPOC`,
-whichever is **lower**. Rationale: if price is back below the POC of the bar
-that broke out, the breakout failed.
+**Conditions:** long regime · **acceptance above `sVAH`** (§2) · entry via
+buy-stop at the acceptance bar's high + 0.05, valid 2 bars.
 
-**Targets:** T1 `cVAH + 0.5 × VW` · T2 `cVAH + 1.0 × VW` · T3 next HVN above
-from the 60-bar node map (§5).
+**Stop:** `sVAH − 0.5 × ATR`, or below the acceptance bar's `bPOC`, whichever is
+**lower** — if price is back under the POC of the bar that broke out, the
+breakout failed.
 
-### 4.3 Setup C — the 80% rule (rotation, both directions)
+**Targets:** T1 `sVAH + 0.5 × SW` · T2 `sVAH + SW` · T3 the next HVN above from
+the 60-bar node map.
 
-The one counter-trend trade, and the only trade allowed in a balanced market.
+**Failed-breakout override:** acceptance back *inside* swing value is a full exit
+at that close, even if the stop hasn't been touched.
 
-Classic market-profile logic: when price opens outside value and is then
-**accepted back inside**, the auction has failed and price tends to rotate to
-the *far* side of the value area.
+### 4.3 Setup C — the 80% rule (rotation)
+
+The one counter-trend trade. When price is accepted back inside a value area it
+had left, the auction failed and price tends to rotate to the far side.
 
 **Conditions (long version):**
-1. Price closed **below `cVAL`** at some point in the last 3 bars.
-2. Two consecutive closes **back inside** the value area (between `cVAL` and `cVAH`).
-3. Second bar's `bPOC` inside value.
+1. **The market is balanced** (>75% CVA overlap, §3) — *or* the regime agrees
+   with the trade's direction. Not merely "the regime isn't against it."
+2. Price closed **below `sVAL`** within the last 3 bars.
+3. Two consecutive closes **back inside** swing value, second bar's `bPOC` inside.
 
-**Entry:** market on the close of that second bar, or next bar's open.
-**Stop:** `cVAL − 0.5 × ATR` (below the level you just reclaimed).
-**Target:** **single target, `cVAH`.** Full exit. No runner — this is a
-rotation, not a trend trade.
-**Size:** half normal risk in a balanced market; full risk only if the §3
-regime agrees with the trade's direction.
+**Entry:** market, at the next bar's open. **Stop:** `sVAL − 0.5 × ATR`.
+**Target:** single — `sVAH`. Full exit, no runner. **Size:** half risk in a
+balanced market.
 
-Mirror everything for the short side (accepted back inside from above → target `cVAL`).
+> Condition 1 is the fix for the worst failure in testing. Written as "regime
+> ≤ 0", Setup C shorted RGLD at 215, at 214, and at 252 during the strongest
+> advance of the year, because a strict trend gate called that advance
+> *neutral*. Requiring a genuinely balanced market cut the plan's overall
+> expectancy loss by roughly two-thirds. It is still the weakest of the three.
 
 ---
 
 ## 5. Exits — the ladder
 
-Every trade exits in thirds. Define R = entry − initial stop (per share).
+R = |entry − initial stop| per share.
 
 | Leg | Action | Then |
 |---|---|---|
-| **T1** | Sell 1/3 | Move stop on the rest to **breakeven** |
-| **T2** | Sell 1/3 | Switch the last third to the trail below |
-| **T3** | Sell the last 1/3 at target, or on the trail — whichever comes first | Flat |
+| **T1** | Sell 1/3 | Stop on the rest to **breakeven** |
+| **T2** | Sell 1/3 | Last third goes to the trail |
+| **T3** | Sell the last 1/3 at target or on the trail | Flat |
 
-**The trail (one rule, mechanical):** after T2, exit the remaining third on the
-**first 195m close below the `bVAL` of the prior bar** (long) / above prior
-`bVAH` (short). Nothing else — no discretionary "it looks weak."
+**The trail:** after T2, exit the last third on the **first 195m close below the
+prior bar's `bVAL`** (long) / above prior `bVAH` (short). Nothing discretionary.
 
-**Minimum-R filter:** if T1 is closer than **1.0 R**, the trade is not worth
-taking. Skip it. This kills entries taken too far from structure.
+**Minimum payoff — on the primary target, not T1.** The trade must offer at
+least **1.5R at T2** (or at T1 on a single-target Setup C). T1 carries no
+minimum: it is a de-risking partial, not the payoff.
 
-**Hard stop-out:** initial stop hit before T1 = full exit, −1R, done. No
-averaging down, no widening, no "give it one more bar."
+> The first draft of this plan required 1.0R to *T1* and that single line vetoed
+> **~90% of all signals**. The reason is structural and worth internalising: on
+> a 195m chart a single bar's range is about the same size as the distance to
+> the next structural level, so a stop placed beyond the signal bar's low is
+> roughly as far away as T1 is. Demanding 1R to the first scale-out is
+> arithmetically close to impossible.
 
-**Time stop:** if after **8 bars** (4 sessions) the trade has not reached T1 and
-is under **+0.5R**, exit at market on the next bar close. Dead capital is a cost.
+**Hard stop-out:** stop hit = full exit, −1R. No averaging down, no widening.
 
-**Failed-breakout override (Setup B only):** an *acceptance back below `cVAH`*
-(two closes, second bar's POC below) is a full exit at that close, even if the
-stop hasn't been touched. That's the structure telling you the breakout failed
-before your stop does.
+**Time stop:** after **8 bars** (4 sessions), if T1 hasn't been reached and the
+position is under **+0.5R**, exit at market on the next bar close.
 
-**Event exit:** flatten before any earnings print in the name (§6).
+**Event exit:** flatten before any earnings print.
 
 ---
 
 ## 6. Filters that veto a trade
 
-Run this list before every entry. Any single hit = no trade.
+Any single hit = no trade.
 
-- ❌ **Earnings** inside the expected hold: no new entry within **6 bars
-  (3 sessions)** of a confirmed earnings date; flatten existing positions before
-  the print. A gap through your stop is not a −1R loss, it's whatever the gap says.
-- ❌ **Stop too wide**: structural stop > **2.0 × ATR**. Structure isn't clean
-  enough to trade.
-- ❌ **T1 < 1.0 R** (§5).
+- ❌ **Earnings** inside the hold: no entry within **6 bars (3 sessions)** of a
+  confirmed date; flatten before the print.
+- ❌ **Payoff < 1.5R** at the primary target (§5).
+- ❌ **Stop > 2.0 × ATR** — structure isn't clean enough.
 - ❌ **Climax signal bar**: range > 2.5 × ATR.
-- ❌ **Gap beyond value**: session opens more than **1.5 × ATR** outside `cVAH`
-  /`cVAL`. Wait for the first 195m bar to complete and re-derive levels; never
-  chase the open.
-- ❌ **Balanced market** (>75% CVA overlap, §3) for Setups A and B. Setup C only.
-- ❌ **Thin profile**: signal bar volume < 60% of the 20-bar average volume. A
-  profile built on no volume is not information.
-- ❌ **Correlation stack**: already holding 2 positions in the same complex
-  (e.g. RGLD + NEM + GDX are one bet on gold, not three).
+- ❌ **Thin profile**: signal bar volume < 60% of the 20-bar average. A profile
+  built on no volume is not information.
+- ❌ **Balanced market** for Setups A and B; **trending market** for Setup C.
+- ❌ **Gap beyond value**: session opens more than 1.5 × ATR outside value — wait
+  for the first 195m bar to complete and re-derive levels. Never chase the open.
+- ❌ **Correlation stack**: already holding 2 positions in one complex (RGLD +
+  NEM + GDX is one bet on gold, not three).
 
 ---
 
 ## 7. Position sizing
 
 ```
-shares = floor( account_equity × risk_pct / (entry − stop) )
+shares = floor( equity × risk_pct / (entry − stop) )
 ```
 
-- **risk_pct = 0.5%** per trade default; **1.0%** maximum, and only when the §3
-  regime is fully aligned and all of §6 is clean.
-- **Max 3 concurrent positions.** Max **2** in correlated names (§6).
-- **Portfolio heat cap: 3.0%.** Sum of open risk (using current stops, so
-  breakeven stops count as zero) may not exceed 3% of equity. At the cap, no new
-  entries regardless of signal quality.
-- **Drawdown brake:** after **3 consecutive −1R losses**, halve risk_pct until
-  the next winning trade closes.
+- **risk_pct = 0.5%** default, **1.0%** maximum and only with the regime fully
+  aligned and §6 clean.
+- **Max 3 concurrent positions**; max 2 in correlated names.
+- **Portfolio heat cap 3.0%** — sum of open risk at current stops (breakeven
+  stops count as zero). At the cap, no new entries.
+- **Drawdown brake:** after 3 consecutive −1R losses, halve risk_pct until the
+  next winning trade closes.
 
 ---
 
 ## 8. The daily routine
 
-Twice a day, at the 195m closes — **12:45 ET** and **16:00 ET**:
+At the 195m closes — **12:45 ET** and **16:00 ET**:
 
-1. **Update levels.** Re-read `cPOC`/`cVAH`/`cVAL` (20-bar) and the HVN/LVN map
-   (60-bar). Write them down; they move every bar.
-2. **Manage what's open first.** T1/T2/T3 hit? Trail triggered? Time stop at 8
-   bars? Failed-breakout override? Earnings inside 6 bars?
-3. **Re-check the regime gate** (§3) per symbol.
+1. **Update levels** — `python vp195.py bars.csv --levels 8` prints the bar,
+   swing, and composite tiers plus ATR and the regime flag.
+2. **Manage what's open first** — T1/T2/T3, trail, 8-bar time stop,
+   failed-breakout override, earnings inside 6 bars.
+3. **Re-check the regime gate** per symbol.
 4. **Scan for signal bars** — A, then B, then C.
-5. **Run the veto list** (§6) on each candidate.
-6. **Size it** (§7), place the order with its stop as a single bracket, log it (§10).
+5. **Run the veto list** (§6).
+6. **Size it** (§7), place the order with its stop as one bracket, log it (§10).
 
-Orders go in **at the bar close** with the stop attached in the same bracket. A
-position without a resting stop is not part of this plan.
+Orders go in **at the bar close** with the stop attached. A position without a
+resting stop is not part of this plan.
 
 ---
 
-## 9. Worked example (structure only — read your own levels)
+## 9. Worked example — a real signal
 
-Numbers below are **illustrative**, not read off a live feed. Take the real
-`cPOC`/`cVAH`/`cVAL` from your own footprint before risking anything.
+RGLD, **2026-08-14 morning bar** (09:30–12:45 ET). Setup A, produced by
+`vp195.py` from 1-minute bars, not by hand.
 
-Say RGLD on the 195m shows: `cVAL 258.50`, `cPOC 262.00`, `cVAH 266.50`,
-ATR 4.00, account 100,000, risk 0.5%.
+| | Value |
+|---|---|
+| Signal bar | o 228.29 · h 233.56 · **l 226.44** · c 230.50 · `bPOC` 230.88 · vol 187,589 |
+| Swing value (6 bars) | `sVAL` **228.75** · `sPOC` 233.38 · `sVAH` 238.25 · SW 9.50 |
+| Composite (20 bars) | `cVAL` 214.00 · `cPOC` 233.62 · `cVAH` 238.25 · VW 24.25 |
+| ATR(14) | 4.64 |
 
-`VW = 266.50 − 258.50 = 8.00`
-
-**Setup A fires:** a bar wicks to 257.20, closes 259.80 (above `cVAL`), `bPOC`
-260.40 (above `cVAL` ✓), bar range 3.10 (< 2.5 × ATR = 10.00 ✓), volume above
-the 20-bar average ✓.
+The bar traded to 226.44, **below `sVAL` 228.75**, then closed at 230.50 back
+above it, with `bPOC` 230.88 above it too. Long regime confirmed. Condition met.
 
 | | Level | Working |
 |---|---|---|
-| Entry (buy-stop) | **260.95** | signal bar high 260.90 + 0.05 |
-| Initial stop | **256.20** | min(257.20, 258.50) − 0.25 × 4.00 |
-| **R** | **4.75** | 260.95 − 256.20 |
-| T1 | **262.00** | `cPOC` — 1.05 R ✓ clears the 1.0 R filter |
-| T2 | **266.50** | `cVAH` — 1.17 R |
-| T3 | **274.50** | `cVAH + VW` — 2.85 R |
-| Size | **105 shares** | (100,000 × 0.005) / 4.75 = 105.2 → 105 |
-| Risk | **$499** | 105 × 4.75 |
+| Entry (buy-stop) | **233.61** | signal bar high 233.56 + 0.05 |
+| Initial stop | **225.28** | min(226.44, 228.75) − 0.25 × 4.64 |
+| **R** | **8.33** | 1.79 × ATR — under the 2.0 cap ✓ |
+| T1 | 238.25 | `sVAH` (0.56R) |
+| T2 | **247.75** | `sVAH + SW` — **1.70R**, clears the 1.5R payoff filter ✓ |
+| T3 | 262.50 | `cVAH + VW` (3.47R) |
+| Size | **60 sh** | (100,000 × 0.005) / 8.33 |
+| Risk | **$500** | |
 
-Stop distance 4.75 < 2.0 × ATR (8.00) ✓. Trade is valid.
+**What happened:** filled 233.61 on the 08-17 morning bar. T1 and T2 both hit on
+08-19 (the 241→249 gap), T3 on 08-24 at 262.50. **+1.91R over 10 bars**, MFE
++3.53R, MAE −0.45R. That is the August advance visible on the right of the chart.
 
-Sell 35 at 262.00 → stop to 260.95. Sell 35 at 266.50 → last 35 trails on
-"close below the prior bar's `bVAL`." If 8 bars pass without touching T1 at
-262.00 and the position is under +0.5R (0.5 × 4.75 = **+2.38/share**, i.e. price
-under 263.33), it's out at market on the next close.
+**And a signal the rules refused.** At the chart's right edge — 2026-08-25,
+close 267.76 — Setup B fires long: acceptance above `sVAH` 263.25. But the stop
+(`sVAH − 0.5 ATR` = 260.43) gives R = 7.43, while T2 (`sVAH + SW` = 270.25) is
+only **0.32R** away. Payoff 0.32R against a 1.5R minimum → **no trade**. Price
+is extended far above the value it came from; the structure to lean on is 7
+points below while the next objective is 2 points above. The veto list exists
+for exactly that geometry.
 
 ---
 
-## 10. Forward-test log (do this before sizing up)
+## 10. What happened when this was actually run
 
-Nothing here is backtested. Paper or minimum size for **at least 30 closed
-trades**, logging one row each:
+`vp195.py` replayed every rule over **RGLD, 2026-02-02 → 2026-08-25**, 284
+bars of 195m built from 1-minute bars (volume bucketed at each minute's VWAP,
+$0.25 rows, RTH only). 252 bars scanned after warmup.
 
-`date_in, symbol, setup(A/B1/B2/C), regime_flags(4), cPOC, cVAH, cVAL, VW, ATR,
-entry, stop, R_per_share, shares, T1/T2/T3, exit_reason(T1|T2|T3|stop|trail|time|event),
-bars_held, MFE_R, MAE_R, realised_R`
+| | |
+|---|---|
+| Signals passing every filter | **11** (59 vetoed) |
+| Triggered | 9 |
+| Expectancy | **−0.12R** per trade |
+| Hit rate | 44% |
+| Setup A | n=2, +0.91R avg |
+| Setup B | n=3, −0.11R avg |
+| Setup C | n=4, −0.63R avg |
 
-**Judge it on:**
-- **Expectancy in R** — must be > +0.15R/trade net of costs, or the plan is noise.
-- **Hit rate by setup** — if B1 (momentum) trails B2 (retest) badly, drop B1.
-- **MAE distribution** — if most winners never trade more than −0.5R against
-  you, the stops are too wide and every R figure above is inflated.
-- **Time-stop cost** — how many time-stopped trades would have worked with more
-  patience? If most, lengthen from 8 bars; if few, keep it.
-- **Regime attribution** — if trades taken in balanced markets (Setup C) lose
-  while trend trades win, cut C entirely.
+**Read that honestly.** Nine trades on one symbol over six months is not a
+backtest — it cannot distinguish a −0.12R edge from a +0.3R one, and the window
+is dominated by a single 20% decline followed by a single 40% rally. What the
+run *does* establish, because these are structural rather than statistical
+findings, is the four corrections already folded into the rules above:
+
+1. Triggers cannot key off the 20-bar composite — its VAL is a whole leg below
+   price in a trend, so Setup A fired **zero** times in 232 bars (§2).
+2. A 1.0R-to-T1 filter vetoes ~90% of signals for arithmetic reasons (§5).
+3. An SMA(50) trend gate admits 4% of bars — a blackout, not a filter (§3).
+4. "Regime not against me" is not "balanced", and conflating them made Setup C
+   short a runaway uptrend three times (§4.3).
+
+**Before risking real size**, paper or minimum-size **at least 30 closed
+trades across several symbols**, logging:
+
+`date_in, symbol, setup, regime, sVAL/sPOC/sVAH, cVAL/cPOC/cVAH, SW, ATR, entry,
+stop, R_per_share, shares, T1/T2/T3, exit_reason, bars_held, MFE_R, MAE_R, realised_R`
+
+Judge it on **expectancy in R** (> +0.15R net of costs or it's noise), **hit
+rate by setup** (Setup C is the one to cut first), **MAE distribution** (if
+winners rarely trade more than −0.5R against you, the stops are too wide and
+every R figure here is flattering), and **time-stop cost**.
 
 Kill any rule that doesn't earn its place. `RESEARCH.md` is the standard: most
-plausible-sounding ideas in this repo failed their honest test, and this one has
-not taken its test yet.
+plausible-sounding ideas in this repo failed their honest test.
 
 ---
+
+## Running it
+
+```bash
+python vp195.py bars.csv                 # scan, list signals + replayed outcomes
+python vp195.py bars.csv --levels 8      # current level tiers + regime flag
+python vp195.py bars.csv --show-vetoed   # every rejected signal and why
+python vp195.py bars.csv --equity 50000 --risk 0.01
+python vp195.py bars.csv --composite 14  # sensitivity-test the composite window
+```
+
+Input is one row per 195m bar: `bar,o,h,l,c,vol,prof`, where `bar` is
+`YYYY-MM-DD|0` / `|1` for the two half-sessions and `prof` is the bar's profile
+as `bucket:volume` pairs (bucket index × 0.25 = the row's low edge). Build it
+from 1-minute bars by bucketing each minute's volume at its VWAP.
 
 ## Disclaimer
 
 For research and education only. Not investment advice. These rules are
-mechanical and unvalidated; confirm every level on your own chart and manage
-your own risk.
+mechanical and **unvalidated** — §10 is the whole of the evidence. Confirm every
+level on your own chart and manage your own risk.

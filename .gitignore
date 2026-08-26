@@ -7,3 +7,4 @@ data/
 dashboard.html
 artifact_dashboard.html
 darkpool.html
+!samples/*.csv
