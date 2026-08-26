@@ -1,0 +1,357 @@
+<title>Inside the Value Band</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#EDF0F3; --surface:#FFFFFF; --ink:#151A21; --muted:#5A6674;
+  --rule:#D2D9E0; --rule-soft:#E2E7EC;
+  --accent:#175E58; --accent-soft:rgba(23,94,88,.10); --accent-mid:rgba(23,94,88,.34);
+  --long:#2A7A57; --stop:#AE3F2E; --profile:rgba(90,102,116,.34);
+  --serif:"Newsreader",Georgia,"Times New Roman",serif;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E1218; --surface:#161B23; --ink:#E4E9F0; --muted:#8792A2;
+    --rule:#28303B; --rule-soft:#1E252E;
+    --accent:#54B6A6; --accent-soft:rgba(84,182,166,.13); --accent-mid:rgba(84,182,166,.40);
+    --long:#4FC08D; --stop:#DE7059; --profile:rgba(135,146,162,.40);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E1218; --surface:#161B23; --ink:#E4E9F0; --muted:#8792A2;
+  --rule:#28303B; --rule-soft:#1E252E;
+  --accent:#54B6A6; --accent-soft:rgba(84,182,166,.13); --accent-mid:rgba(84,182,166,.40);
+  --long:#4FC08D; --stop:#DE7059; --profile:rgba(135,146,162,.40);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:var(--sans); font-size:17px; line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px 96px}
+.col{max-width:63ch}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font-family:var(--serif);font-weight:500;font-size:clamp(2.4rem,5.6vw,3.6rem);line-height:1.06;letter-spacing:-.015em}
+h2{font-family:var(--serif);font-weight:500;font-size:clamp(1.5rem,3vw,1.95rem);line-height:1.2;letter-spacing:-.01em}
+h3{font-family:var(--sans);font-weight:600;font-size:1rem;letter-spacing:.005em}
+p{margin:0}
+.eyebrow{
+  font-family:var(--mono);font-size:.7rem;font-weight:500;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--accent);
+}
+em{font-style:italic}
+strong{font-weight:600}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:500}
+
+header{padding:72px 0 0}
+.lede{font-family:var(--serif);font-size:clamp(1.15rem,2.2vw,1.4rem);line-height:1.5;color:var(--muted);margin-top:20px}
+.meta{
+  display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:26px;padding-top:20px;
+  border-top:1px solid var(--rule);font-family:var(--mono);font-size:.76rem;color:var(--muted);
+}
+section{margin-top:64px;display:flex;flex-direction:column;gap:18px}
+.stack{display:flex;flex-direction:column;gap:16px}
+
+/* --- the anatomy split --- */
+.split{display:grid;grid-template-columns:minmax(0,1fr);gap:28px;align-items:start;margin-top:6px}
+@media(min-width:840px){.split{grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:44px}}
+.panel{
+  background:var(--surface);border:1px solid var(--rule-soft);border-radius:3px;
+  padding:18px 16px 12px;
+}
+.diag{width:100%;height:auto;display:block}
+.d-row{fill:var(--profile)}
+.d-in{fill:var(--accent-mid)}
+.d-poc{fill:var(--accent)}
+.d-lead{stroke:var(--rule);stroke-width:1}
+.d-lab{font-family:var(--mono);font-size:12.5px;font-weight:600;fill:var(--ink);text-anchor:end;letter-spacing:.04em}
+.d-sub{font-family:var(--sans);font-size:11px;fill:var(--muted);text-anchor:end}
+
+dl.defs{margin:0;display:flex;flex-direction:column;gap:18px}
+dl.defs div{display:flex;flex-direction:column;gap:3px;padding-left:14px;border-left:2px solid var(--accent-soft)}
+dl.defs dt{font-family:var(--mono);font-size:.82rem;font-weight:600;letter-spacing:.05em;color:var(--accent)}
+dl.defs dd{margin:0;color:var(--ink)}
+
+/* --- chart --- */
+figure{margin:0}
+.scroller{overflow-x:auto;background:var(--surface);border:1px solid var(--rule-soft);border-radius:3px}
+.chart{display:block;min-width:820px;width:100%;height:auto}
+figcaption{font-size:.86rem;color:var(--muted);margin-top:12px;max-width:63ch}
+.band{fill:var(--accent-soft)}
+.band-tag{font-family:var(--mono);font-size:10.5px;fill:var(--accent);letter-spacing:.07em;opacity:.85}
+.lvl{stroke-width:1}
+.lvl.tgt{stroke:var(--muted);opacity:.62}
+.lvl.entry{stroke:var(--long)}
+.lvl.stop{stroke:var(--stop)}
+.lvl.sval{stroke:var(--accent);stroke-width:1.5}
+.lvl-lab{font-family:var(--mono);font-size:10.5px;font-variant-numeric:tabular-nums;fill:var(--muted)}
+.lvl-lab.entry{fill:var(--long)} .lvl-lab.stop{fill:var(--stop)} .lvl-lab.sval{fill:var(--accent);font-weight:600}
+.wick{stroke:var(--muted);stroke-width:1.1}
+.body{fill:var(--surface);stroke:var(--muted);stroke-width:1.1}
+.body.up{fill:var(--surface)}
+.body.dn{fill:var(--muted)}
+.wick.sig,.body.sig{stroke:var(--ink);stroke-width:1.8}
+.body.sig{fill:var(--ink)}
+.prof{fill:var(--profile)}
+.prof-in{fill:var(--accent-mid)}
+.mk{stroke:var(--surface);stroke-width:1.6}
+.mk.entry{fill:var(--long)} .mk.tgt{fill:var(--muted)}
+.mk-lab{font-family:var(--mono);font-size:10.5px;text-anchor:middle;fill:var(--muted)}
+.mk-lab.entry{fill:var(--long)}
+.sig-lab{font-family:var(--mono);font-size:11px;font-weight:600;text-anchor:middle;fill:var(--ink)}
+.sig-lab2{font-family:var(--sans);font-size:10.5px;text-anchor:middle;fill:var(--muted)}
+.xlab{font-family:var(--mono);font-size:10.5px;text-anchor:middle;fill:var(--muted)}
+
+/* --- steps --- */
+ol.steps{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:0;counter-reset:s}
+ol.steps li{
+  counter-increment:s;display:grid;grid-template-columns:34px minmax(0,1fr);gap:18px;
+  padding:20px 0;border-top:1px solid var(--rule-soft);
+}
+ol.steps li:last-child{border-bottom:1px solid var(--rule-soft)}
+ol.steps li::before{
+  content:counter(s);font-family:var(--mono);font-size:.78rem;font-weight:600;
+  color:var(--accent);padding-top:3px;
+}
+.step-body{display:flex;flex-direction:column;gap:7px;min-width:0}
+.calc{
+  font-family:var(--mono);font-size:.82rem;font-variant-numeric:tabular-nums;
+  color:var(--muted);background:var(--surface);border:1px solid var(--rule-soft);
+  border-radius:2px;padding:7px 10px;overflow-x:auto;white-space:nowrap;
+}
+
+/* --- checks --- */
+.checks{display:grid;grid-template-columns:minmax(0,1fr);gap:1px;background:var(--rule-soft);
+  border:1px solid var(--rule-soft);border-radius:3px;overflow:hidden}
+@media(min-width:720px){.checks{grid-template-columns:1fr 1fr}}
+.check{background:var(--surface);padding:18px 20px;display:flex;flex-direction:column;gap:5px}
+.check h3{color:var(--ink)}
+.check p{font-size:.92rem;color:var(--muted)}
+.check .verdict{font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--long)}
+
+.note{
+  border-left:2px solid var(--stop);padding:2px 0 2px 18px;
+  display:flex;flex-direction:column;gap:12px;
+}
+.note .eyebrow{color:var(--stop)}
+footer{margin-top:72px;padding-top:22px;border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:.74rem;color:var(--muted)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(prefers-reduced-motion:no-preference){
+  header,section{animation:rise .5s cubic-bezier(.2,.7,.3,1) both}
+  section:nth-of-type(2){animation-delay:.04s} section:nth-of-type(3){animation-delay:.08s}
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+}
+</style>
+
+<div class="wrap">
+<header class="col">
+  <p class="eyebrow">195-minute swing plan</p>
+  <h1>Inside the value band</h1>
+  <p class="lede">Most of the day's volume trades inside a narrow band. The plan is one bet, made over and over: price leaves that band, comes back to test its edge, and if the edge holds, you go with it.</p>
+  <div class="meta">
+    <span>RGLD &middot; NASDAQ</span><span>14&ndash;24 August 2026</span><span>real bars, real signal</span>
+  </div>
+</header>
+
+<section class="col stack">
+  <h2>What the three letters mean</h2>
+  <p>Every 195-minute bar has a volume profile &mdash; the horizontal histogram already sitting on your chart. It shows how many shares traded at each price during that bar. It is almost always fattest in the middle and thin at the extremes.</p>
+</section>
+
+<section>
+  <div class="split">
+    <div class="panel"><svg viewBox="0 0 430 250" class="diag" role="img" aria-label="A single bar's volume profile: VAH at the top of the band, POC at the widest row, VAL at the bottom.">
+<rect class="d-row d-in" x="150" y="20.6" width="18.4" height="11.4"/>
+<rect class="d-row d-in" x="150" y="33.2" width="91.2" height="11.4"/>
+<rect class="d-row d-in" x="150" y="45.9" width="58.8" height="11.4"/>
+<rect class="d-row d-in" x="150" y="58.5" width="89.5" height="11.4"/>
+<rect class="d-row d-in" x="150" y="71.1" width="80.7" height="11.4"/>
+<rect class="d-row d-in" x="150" y="83.7" width="84.2" height="11.4"/>
+<rect class="d-row d-in" x="150" y="96.3" width="118.4" height="11.4"/>
+<rect class="d-row d-in" x="150" y="109.0" width="161.4" height="11.4"/>
+<rect class="d-row d-in" x="150" y="121.6" width="155.3" height="11.4"/>
+<rect class="d-row d-in" x="150" y="134.2" width="90.4" height="11.4"/>
+<rect class="d-row d-poc" x="150" y="146.8" width="236.0" height="11.4"/>
+<rect class="d-row d-in" x="150" y="159.5" width="158.8" height="11.4"/>
+<rect class="d-row d-in" x="150" y="172.1" width="121.1" height="11.4"/>
+<rect class="d-row d-in" x="150" y="184.7" width="14.9" height="11.4"/>
+<rect class="d-row" x="150" y="197.3" width="27.2" height="11.4"/>
+<rect class="d-row" x="150" y="210.0" width="131.6" height="11.4"/>
+<line class="d-lead" x1="150" y1="38.9" x2="144" y2="38.9"/>
+<text class="d-lab" x="138" y="37.9">VAH</text>
+<text class="d-sub" x="138" y="50.9">top of the band</text>
+<line class="d-lead" x1="150" y1="152.6" x2="144" y2="152.6"/>
+<text class="d-lab" x="138" y="151.6">POC</text>
+<text class="d-sub" x="138" y="164.6">most volume here</text>
+<line class="d-lead" x1="150" y1="203.1" x2="144" y2="203.1"/>
+<text class="d-lab" x="138" y="202.1">VAL</text>
+<text class="d-sub" x="138" y="215.1">bottom of the band</text>
+</svg></div>
+    <dl class="defs">
+      <div><dt>POC &middot; point of control</dt>
+        <dd>The single price where the most shares changed hands. The fattest row. This is the market's centre of gravity for that bar.</dd></div>
+      <div><dt>VAH &middot; value area high</dt>
+        <dd>The top edge of the band holding 70% of the bar's volume.</dd></div>
+      <div><dt>VAL &middot; value area low</dt>
+        <dd>The bottom edge of that same band. <strong>This is the line you trade against on the long side.</strong></dd></div>
+      <div><dt>Why it matters</dt>
+        <dd>Inside the band, buyers and sellers agreed. Outside it, they didn't. Price that falls out of the band and is pushed straight back in is telling you the low prices were rejected &mdash; someone was waiting there.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section>
+  <div class="col stack">
+    <h2>One real trade, start to finish</h2>
+    <p>This is not a made-up example. It's what the rules produced on RGLD on <span class="num">14 August 2026</span>, from real 1-minute data. The shaded band is the value the previous six bars built: <span class="num">228.75</span> to <span class="num">238.25</span>.</p>
+  </div>
+  <figure style="margin-top:8px">
+    <div class="scroller"><svg viewBox="0 0 980 470" class="chart" role="img" aria-label="RGLD 195-minute chart, 12 to 24 August 2026, showing the swing value band, the signal bar, entry, stop and three targets.">
+<rect class="band" x="10.0" y="281.6" width="213.6" height="85.6"/>
+<text class="band-tag" x="18.0" y="296.6">value the last 6 bars built</text>
+<line class="lvl tgt" x1="10.0" y1="63.1" x2="918.0" y2="63.1" stroke-dasharray="1 4"/>
+<text class="lvl-lab tgt" x="925.0" y="66.7">T3  262.50</text>
+<line class="lvl tgt" x1="10.0" y1="196.0" x2="918.0" y2="196.0" stroke-dasharray="1 4"/>
+<text class="lvl-lab tgt" x="925.0" y="199.6">T2  247.75</text>
+<line class="lvl tgt" x1="10.0" y1="281.6" x2="918.0" y2="281.6" stroke-dasharray="1 4"/>
+<text class="lvl-lab tgt" x="925.0" y="285.2">T1  238.25</text>
+<line class="lvl entry" x1="10.0" y1="323.4" x2="918.0" y2="323.4" stroke-dasharray="6 4"/>
+<text class="lvl-lab entry" x="925.0" y="327.0">entry  233.61</text>
+<line class="lvl sval" x1="10.0" y1="367.2" x2="918.0" y2="367.2"/>
+<text class="lvl-lab sval" x="925.0" y="370.8">sVAL  228.75</text>
+<line class="lvl stop" x1="10.0" y1="398.4" x2="918.0" y2="398.4" stroke-dasharray="6 4"/>
+<text class="lvl-lab stop" x="925.0" y="402.0">stop  225.28</text>
+<line class="wick dn" x1="36.7" y1="315.2" x2="36.7" y2="333.4"/>
+<rect class="body dn" x="25.0" y="320.0" width="23.5" height="10.1"/>
+<line class="wick dn" x1="90.1" y1="349.1" x2="90.1" y2="391.9"/>
+<rect class="body dn" x="78.4" y="358.7" width="23.5" height="26.9"/>
+<line class="wick dn" x1="143.5" y1="379.0" x2="143.5" y2="398.4"/>
+<rect class="body dn" x="131.8" y="385.6" width="23.5" height="7.8"/>
+<line class="wick up sig" x1="196.9" y1="323.8" x2="196.9" y2="388.0"/>
+<rect class="body up sig" x="185.2" y="351.4" width="23.5" height="19.9"/>
+<line class="wick up" x1="250.4" y1="340.3" x2="250.4" y2="354.7"/>
+<rect class="body up" x="238.6" y="350.4" width="23.5" height="1.6"/>
+<line class="wick up" x1="303.8" y1="299.9" x2="303.8" y2="347.7"/>
+<rect class="body up" x="292.0" y="302.9" width="23.5" height="29.6"/>
+<line class="wick up" x1="357.2" y1="294.7" x2="357.2" y2="315.8"/>
+<rect class="body up" x="345.4" y="296.1" width="23.5" height="6.8"/>
+<line class="wick dn" x1="410.6" y1="303.8" x2="410.6" y2="357.3"/>
+<rect class="body dn" x="398.8" y="321.8" width="23.5" height="18.1"/>
+<line class="wick dn" x1="464.0" y1="337.4" x2="464.0" y2="352.9"/>
+<rect class="body dn" x="452.2" y="340.2" width="23.5" height="11.5"/>
+<line class="wick up" x1="517.4" y1="184.3" x2="517.4" y2="257.8"/>
+<rect class="body up" x="505.7" y="196.7" width="23.5" height="58.0"/>
+<line class="wick up" x1="570.8" y1="191.7" x2="570.8" y2="225.1"/>
+<rect class="body up" x="559.1" y="191.8" width="23.5" height="6.0"/>
+<line class="wick up" x1="624.2" y1="136.9" x2="624.2" y2="209.1"/>
+<rect class="body up" x="612.5" y="150.5" width="23.5" height="57.7"/>
+<line class="wick dn" x1="677.6" y1="141.3" x2="677.6" y2="164.4"/>
+<rect class="body dn" x="665.9" y="151.0" width="23.5" height="2.7"/>
+<line class="wick up" x1="731.1" y1="86.0" x2="731.1" y2="130.2"/>
+<rect class="body up" x="719.3" y="90.2" width="23.5" height="13.6"/>
+<line class="wick dn" x1="784.5" y1="87.2" x2="784.5" y2="105.9"/>
+<rect class="body dn" x="772.7" y="90.4" width="23.5" height="4.1"/>
+<line class="wick up" x1="837.9" y1="58.5" x2="837.9" y2="105.0"/>
+<rect class="body up" x="826.1" y="75.9" width="23.5" height="1.6"/>
+<line class="wick up" x1="891.3" y1="45.3" x2="891.3" y2="82.8"/>
+<rect class="body up" x="879.5" y="51.5" width="23.5" height="25.1"/>
+<rect class="prof" x="210.7" y="374.3" width="46.2" height="1.6"/>
+<rect class="prof" x="210.7" y="367.5" width="9.5" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="354.0" width="5.2" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="351.8" width="42.5" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="349.5" width="55.7" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="347.3" width="82.8" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="345.0" width="31.7" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="342.7" width="54.5" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="340.5" width="56.6" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="338.2" width="41.5" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="336.0" width="29.5" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="333.7" width="28.3" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="331.5" width="31.4" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="329.2" width="20.6" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="327.0" width="32.0" height="1.6"/>
+<rect class="prof prof-in" x="210.7" y="322.5" width="6.5" height="1.6"/>
+<circle class="mk entry" cx="303.8" cy="323.4" r="3.6"/>
+<text class="mk-lab entry" x="303.8" y="312.4">filled</text>
+<circle class="mk tgt" cx="517.4" cy="196.0" r="3.6"/>
+<text class="mk-lab tgt" x="517.4" y="185.0">T1+T2 hit</text>
+<circle class="mk tgt" cx="837.9" cy="63.1" r="3.6"/>
+<text class="mk-lab tgt" x="837.9" y="52.1">T3 hit</text>
+<text class="sig-lab" x="196.9" y="405.0">signal bar</text>
+<text class="sig-lab2" x="196.9" y="418.0">dipped below sVAL, closed back above</text>
+<text class="xlab" x="36.7" y="450.0">12 Aug</text>
+<text class="xlab" x="90.1" y="450.0">13 Aug</text>
+<text class="xlab" x="196.9" y="450.0">14 Aug</text>
+<text class="xlab" x="303.8" y="450.0">17 Aug</text>
+<text class="xlab" x="410.6" y="450.0">18 Aug</text>
+<text class="xlab" x="517.4" y="450.0">19 Aug</text>
+<text class="xlab" x="624.2" y="450.0">20 Aug</text>
+<text class="xlab" x="731.1" y="450.0">21 Aug</text>
+<text class="xlab" x="837.9" y="450.0">24 Aug</text>
+</svg></div>
+    <figcaption>The black bar is the signal. Its own volume profile is drawn to its right &mdash; the same footprint histogram from your chart. Rows inside the value band are highlighted.</figcaption>
+  </figure>
+</section>
+
+<section class="col">
+  <ol class="steps">
+    <li><div class="step-body">
+      <h3>The signal: a dip below the band that doesn't stick</h3>
+      <p>The bar traded down to <span class="num">226.44</span> &mdash; below VAL at <span class="num">228.75</span> &mdash; then closed back up at <span class="num">230.50</span>. Its own POC finished at <span class="num">230.88</span>, also above VAL. Sellers got the price below value and couldn't keep it there.</p>
+    </div></li>
+    <li><div class="step-body">
+      <h3>The entry: five cents above the signal bar's high</h3>
+      <p>You don't buy the close. You place a buy-stop just above the signal bar's high and let the market come get you. If it never trades there, you were wrong and it cost you nothing.</p>
+      <div class="calc">buy-stop = 233.56 (bar high) + 0.05 = <strong>233.61</strong> &nbsp;&mdash;&nbsp; filled 17 Aug</div>
+    </div></li>
+    <li><div class="step-body">
+      <h3>The stop: below the low that was rejected</h3>
+      <p>If price goes back under the bar that rejected it, the reason for the trade is gone. The stop sits under the lower of the bar's low and VAL, with a quarter of an ATR of slack so normal noise doesn't clip you.</p>
+      <div class="calc">stop = min(226.44, 228.75) &minus; 0.25 &times; 4.64 = <strong>225.28</strong> &nbsp;&mdash;&nbsp; risk 8.33/share</div>
+    </div></li>
+    <li><div class="step-body">
+      <h3>The size: the stop decides it, not your conviction</h3>
+      <p>Risk half a percent of the account on the distance between entry and stop. That's the only input.</p>
+      <div class="calc">(100,000 &times; 0.005) &divide; 8.33 = <strong>60 shares</strong> &nbsp;&mdash;&nbsp; $500 at risk</div>
+    </div></li>
+    <li><div class="step-body">
+      <h3>The exits: three thirds, at structure</h3>
+      <p>Sell a third at each level, and move the stop to breakeven after the first. From then on the trade cannot lose.</p>
+      <div class="calc">T1 <strong>238.25</strong> band top &nbsp;·&nbsp; T2 <strong>247.75</strong> band top + band width &nbsp;·&nbsp; T3 <strong>262.50</strong> wider structure</div>
+      <p>T1 and T2 both filled on the <span class="num">19 Aug</span> gap. T3 filled <span class="num">24 Aug</span>. The trade made <strong>1.91&times; the amount risked</strong> over ten bars &mdash; about <span class="num">$955</span> on a <span class="num">$500</span> risk.</p>
+    </div></li>
+  </ol>
+</section>
+
+<section>
+  <div class="col stack">
+    <h2>What had to be true first</h2>
+    <p>The signal alone isn't enough. Four checks run before any order goes in, and any one of them failing means no trade.</p>
+  </div>
+  <div class="checks" style="margin-top:8px">
+    <div class="check"><p class="verdict">passed</p><h3>Is the trend up?</h3>
+      <p>Price above its 20-bar average, that average rising, and the volume centre of gravity higher than it was five bars ago.</p></div>
+    <div class="check"><p class="verdict">passed</p><h3>Is the stop sane?</h3>
+      <p>8.33 is 1.79&times; ATR &mdash; inside the 2&times; ceiling. A wider stop means the structure isn't clean enough to trade.</p></div>
+    <div class="check"><p class="verdict">passed</p><h3>Is it worth taking?</h3>
+      <p>The main target must pay at least 1.5&times; what you risk. T2 at 247.75 pays 1.70&times;.</p></div>
+    <div class="check"><p class="verdict">passed</p><h3>Is the bar real?</h3>
+      <p>Not a climax bar (range under 2.5&times; ATR), volume at least 60% of normal, and no earnings inside the next three sessions.</p></div>
+  </div>
+</section>
+
+<section class="col">
+  <div class="note">
+    <p class="eyebrow">Before you trade any of this</p>
+    <p>These rules have not been proven to make money. Run over six months of RGLD they produced <strong>eleven signals, nine trades, and a small net loss</strong>. Nine trades on one stock cannot tell a good plan from a bad one &mdash; it's far too few to mean anything either way.</p>
+    <p>What the testing <em>did</em> settle is mechanical: which levels the triggers can sensibly key off, and where the earlier draft of the plan was simply unworkable. That part is worth keeping. The edge is still unproven, so paper-trade at least thirty of these across several stocks before risking real size.</p>
+  </div>
+</section>
+
+<footer class="col">Research and education only. Not investment advice. Levels computed from 1-minute RGLD bars, regular hours only.</footer>
+</div>
