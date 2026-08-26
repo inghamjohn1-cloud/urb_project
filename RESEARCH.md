@@ -22,6 +22,7 @@ Every number below was produced by code in this repo against saved raw data.
 | 11 | **Dealer gamma (GEX), 1y history, 5 watchlist names** — days with net gamma < 0 | Vol: next-day \|move\| +17% larger (2.13% vs 1.83%, mechanism confirmed). Direction: +0.9%/5d, +1.6%/10d, +3.6%/21d pooled (n≈125 days) | ⚠️ vol effect credible; directional edge promising but suspect — events cluster into ~15–25 episodes, single year, NVDA's number is essentially one episode (April bottom). Same regime-risk that killed rows 9. Now under forward test (gex_negative in whale_eval) |
 | 12 | **195m volume-profile swing rules (POC/VAH/VAL)** — 8-symbol cohort, 6 months, 2,016 bars scanned, 69 trades | **−0.21R/trade** (95% CI −0.43..+0.01), hit rate 41%. Negative on 6 of 8 names; leave-one-out stable (−0.15 to −0.31). Every parameter setting tested lands at or below zero. **The veto filters are anti-predictive**: signals taken −0.21R vs signals rejected −0.04R | ❌ no edge; filters actively select worse trades |
 | 13 | **GEX overlay on the 195m spec rules** — directional gate + volatility stop-width overlay, bounded by oracles (historical GEX unobtainable, see conclusion 3) | Perfect direction oracle caps the gain at **+0.37R** (keeps 50% of trades); row 11's measured GEX tilt implies only **+0.02..+0.04R** against SE 0.12. Stop-width channel inert even with perfect volatility foresight (−0.21R to −0.07R vs −0.07R baseline). An apparent high-vs-low-vol spread of +0.48R dies under permutation (p=0.085 raw, **p=0.48** corrected for five buckets) | ❌ gate costs more sample size than it can buy; vol overlay wrong channel |
+| 14 | **Graded 195m framework (A/B/aggressive) + GEX context layer** — non-GEX half tested; GEX layer built and null-calibrated | A-grade is **unsatisfiable**: 0 of 103 trades, because the measured-move target and the stop share the value-area scale, so 2:1 cannot bind (median payoff 0.69R). Ladder inverts (B +0.22R > A-minus −0.12R ≈ aggressive −0.13R). "Room to next level" r = −0.011. A U-shaped tercile cleared permutation at p=0.003 but failed lookback stability and was confounded with the short side | ❌ non-GEX half does not discriminate; GEX layer untested but null-calibrated |
 
 ## The three conclusions
 
@@ -64,6 +65,21 @@ Every number below was produced by code in this repo against saved raw data.
    lesson is the oracle technique itself — bound a proposed filter with a
    version that reads the future before paying for the data to build the real
    one.
+
+6. **A branching overlay manufactures its own apparent edge.** Running the GEX
+   context layer against 200 synthetic feeds containing no information returns a
+   median +0.16R for the kept bucket and a median +0.33R separation from the
+   rejected one — the first synthetic run looked like a working filter at +0.25R
+   kept versus −0.24R downgraded. Any real feed must beat **+0.38R kept** and
+   **+0.61R separation** to be evidence. Calibrating that null *before* seeing
+   real output is now the house standard for any multi-branch overlay here
+   (`gex_null.py`).
+7. **One permutation test is not enough.** A tercile effect in this study
+   cleared label-shuffling at p=0.003 and still died: it vanished when an
+   arbitrary 20-bar lookback moved to 30, and it was re-discovering the short
+   side and the weaker trigger rather than measuring what it claimed. Robustness
+   across arbitrary parameter choices, and a check for confounding with
+   known-weak features, are both required.
 
 ## Practical playbook this supports
 

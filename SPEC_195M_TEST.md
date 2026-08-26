@@ -243,6 +243,124 @@ If GEX is pursued anyway, the honest sequence is: collect it forward for a year
 across a wide universe, test whether it predicts direction *on its own* before
 attaching it to anything, and only then consider it as a gate.
 
+---
+
+## The graded framework (price → value → acceptance → GEX → risk)
+
+The hierarchy is right in principle — GEX as terrain, price and value as
+trigger. But it only works if layers 1–3 carry signal on their own, because GEX
+is explicitly not allowed to fire a trade. So the **non-GEX half of the grading
+was tested directly** (`grade_test.py`); all of it is computable from price and
+volume today.
+
+### The A-grade criteria are unsatisfiable as written
+
+**Zero of 103 trades qualified as A-grade.** The requirement "at least 2:1
+reward/risk available" cannot be met against a measured-move first target:
+
+| Payoff to the measured move | |
+|---|---|
+| Median | **0.69R** |
+| 75th percentile | 0.97R |
+| Trades clearing 2.0R | **5 of 103 (5%)** |
+
+The cause is structural, and it is the same trap as the earlier 1.0R-to-T1
+filter. The measured move *is* one value-area width, and the section-3 stop is
+set from the same value area — so entry-to-target and entry-to-stop are the same
+scale by construction. R clusters near 1 and a 2:1 rule cannot bind.
+
+Two ways out, both one line:
+
+| First target | Trades clearing 2:1 |
+|---|---|
+| 1 VAW (as specified) | 5 / 103 |
+| 1.5 VAW | 12 / 103 |
+| 2 VAW | 22 / 103 |
+| 3 VAW | 61 / 103 |
+
+Either move the 2:1 test to a **later** target and let the measured move be a
+scale-out (which is what section 5 already treats it as), or project the target
+from a wider multiple. The first is more faithful to the existing rules.
+
+### The grade ladder inverts
+
+With A empty, the remaining ladder runs backwards from the claim:
+
+| Grade | n | Expectancy |
+|---|---|---|
+| A | **0** | — |
+| A-minus (VAH continuation, under 2:1) | 25 | −0.120R |
+| B (POC reclaim) | 17 | **+0.218R** |
+| Aggressive (VAL rejection) | 61 | −0.134R |
+
+The B-grade POC reclaim beat the VAH breakout. Long-only tells the same story
+(B +0.360R, A-minus +0.079R, aggressive +0.114R). None of it is significant
+(t ≤ 1.16) — the point is only that **the ranking is not there to be found**.
+
+### "Room to the next major level" — a cautionary result
+
+The call-wall room concept has a price-only analogue: distance to the highest
+high of the prior 20 bars. Correlation with outcome: **r = −0.011**. Nothing.
+
+But the terciles showed a sharp U — low +0.172R, middle **−0.585R**, high
++0.187R — and the middle bucket cleared a permutation test at **p = 0.003**,
+the only thing in this whole study to do so. It still isn't real:
+
+- **Lookback instability.** The U appears at 15 and 20 bars and vanishes at 10,
+  30 and 40 (30 bars gives −0.04 / −0.11 / −0.08, flat). A structural effect
+  does not disappear when an arbitrary window moves by ten bars.
+- **Confounding.** The middle tercile is 19 shorts to 15 longs, and shorts run
+  −0.34R across the whole study. Mid-tercile shorts are −0.859R; mid-tercile
+  longs only −0.238R (t = −0.81). It also over-samples continuation triggers
+  (14/34 vs 11/69), already the weaker trigger. The bucket is re-discovering
+  two known-bad features, not measuring room.
+
+Worth stating plainly: **a permutation test alone was not enough.** It tests one
+null — label shuffling — and cannot see researcher choice of the lookback, or
+confounding with variables already known to be weak.
+
+---
+
+## The GEX layer, built and waiting
+
+`gex.py` implements the context layer to the proposed hierarchy: it never fires
+a trade, only grades, downgrades or vetoes one that price and value produced.
+It covers gamma flip, call wall, put wall, major positive/negative strikes,
+net-GEX regime, day-over-day level migration, the decision table, and the
+exit-pressure rules (call-wall stall, flip failure, put-wall failure).
+
+`vp195_spec.py --gex FEED.csv` runs the full cohort test with the layer attached
+and reports results by grade. Feed schema:
+
+```
+date,symbol,flip,call_wall,put_wall,net_gex[,pos_strikes,put_strikes]
+2026-08-25,RGLD,259.00,268.00,251.00,1.24e9
+```
+
+**None of it is tested**, because historical dealer gamma is not obtainable here.
+
+### Pre-registered thresholds — the bar a real feed must clear
+
+Before buying data, `gex_null.py` runs the layer against **200 synthetic feeds
+with realistic geometry and no information** (flip near price, walls a few
+percent out, random sign on net gamma). Noise alone produces:
+
+| From a feed containing nothing | |
+|---|---|
+| Kept (A+B+aggressive) bucket, median | **+0.162R** |
+| Kept bucket, 95th percentile | **+0.383R** |
+| Kept-minus-downgraded separation, median | **+0.330R** |
+| Separation, 95th percentile | **+0.614R** |
+
+> **A real GEX feed is evidence only if the kept bucket beats +0.383R and the
+> kept-minus-downgraded separation beats +0.614R on this cohort.**
+
+Those numbers are large, and that is the finding. A layer with five branches
+slicing ~100 trades manufactures separation on its own — the first synthetic run
+returned +0.25R for kept against −0.24R for downgraded, which looks like a
+working filter and is pure noise. Write the thresholds down before you look at
+real output.
+
 ## Reproducing
 
 ```bash
@@ -252,6 +370,9 @@ python vp195_spec.py --spec samples/cohort.txt --log out.csv  # spec-8 log
 python vp195_spec.py --spec samples/cohort.txt --state 6    # live eligibility
 python null_test.py                                         # the permutation test
 python gex_feasibility.py                                   # the GEX oracle bounds
+python grade_test.py                                        # the non-GEX half of the grading
+python gex_null.py                                          # pre-registered GEX thresholds
+python vp195_spec.py --spec samples/cohort.txt --gex feed.csv   # with a real feed
 ```
 
 *Research and education only. Not investment advice.*

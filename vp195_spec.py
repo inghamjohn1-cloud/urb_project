@@ -392,6 +392,49 @@ def show_state(specfile, n):
               "measured-move scale-out %.2f from entry" % (2 * vaw, vaw))
 
 
+def attach_gex(trades, path):
+    """Grade already-triggered trades with the GEX context layer (gex.py).
+
+    The layer never creates a trade - price and value do that. It grades,
+    downgrades or vetoes what they produced, which is the proposed hierarchy:
+    195m structure -> POC/VAH/VAL -> GEX context -> entry/exit.
+    """
+    import gex as GX
+    feed = GX.load(path)
+    covered = 0
+    for t in trades:
+        day = feed.get((t.sym, t.entry_key.split("|")[0]))
+        if day is None:
+            t.gex_grade, t.gex_why = "no data", []
+            continue
+        covered += 1
+        ctx = GX.context(t.entry, day, t.vaw, t.risk)
+        structure = {"above_vah": t.trigger == "continuation" and t.side > 0,
+                     "poc_rising": t.side > 0,
+                     "reclaimed_poc": t.trigger == "pullback" and t.side > 0,
+                     "val_rejection": t.trigger == "pullback" and t.side > 0,
+                     "below_val": t.side < 0}
+        t.gex_grade, t.gex_why = GX.grade_long(structure, ctx)
+    print("GEX feed %s covers %d of %d trade dates\n" % (path, covered, len(trades)))
+    if not covered:
+        print("  -> no overlapping dates; the layer graded nothing.\n")
+
+
+def report_gex(trades):
+    by = {}
+    for t in trades:
+        by.setdefault(getattr(t, "gex_grade", "no data"), []).append(t.r)
+    if set(by) == {"no data"}:
+        return
+    print("\nBY GEX GRADE (gex.py context layer)")
+    for k in sorted(by, key=lambda k: -len(by[k])):
+        print("  " + line(k, stats(by[k]), 12))
+    kept = [t.r for t in trades
+            if getattr(t, "gex_grade", "") in ("A", "B", "aggressive")]
+    if kept:
+        print("  " + line("A+B+aggr", stats(kept), 12) + "   <- what the layer would keep")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True, help="file of path:bucket lines")
@@ -400,6 +443,9 @@ def main():
     ap.add_argument("--equity", type=float, default=100000.0)
     ap.add_argument("--risk", type=float, default=0.005)
     ap.add_argument("--no-concurrency-cap", action="store_true")
+    ap.add_argument("--gex", metavar="FILE",
+                    help="CSV of daily GEX levels; attaches the gex.py context "
+                         "layer and reports results by grade")
     ap.add_argument("--state", type=int, default=0, metavar="N",
                     help="print the last N bars with POC/VAH/VAL and the live "
                          "spec-3 setup status for each symbol, then exit")
@@ -425,6 +471,9 @@ def main():
             t.shares = int(args.equity * args.risk / t.risk) if t.risk else 0
             t.pnl = t.r * args.equity * args.risk
         all_t += ts
+
+    if args.gex:
+        attach_gex(all_t, args.gex)
 
     dropped = 0
     if not args.no_concurrency_cap:
@@ -473,6 +522,9 @@ def main():
     for sym in sorted(per):
         rest = [t.r for t in all_t if t.sym != sym]
         print("  without %-5s n=%3d   %+.2fR" % (sym, len(rest), stats(rest)["mean"]))
+
+    if args.gex:
+        report_gex(all_t)
 
     if args.trades:
         print("\nTRADES")
