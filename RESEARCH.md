@@ -21,6 +21,7 @@ Every number below was produced by code in this repo against saved raw data.
 | 10 | **Row 9 robustness check** — same test on a diverse cohort (JPM/XOM/UNH/WMT/CAT/DIS) | **−0.25% 21d edge — the effect disappears out-of-sample** | ❌ does not generalize; at best a hot-momentum-name/regime artifact |
 | 11 | **Dealer gamma (GEX), 1y history, 5 watchlist names** — days with net gamma < 0 | Vol: next-day \|move\| +17% larger (2.13% vs 1.83%, mechanism confirmed). Direction: +0.9%/5d, +1.6%/10d, +3.6%/21d pooled (n≈125 days) | ⚠️ vol effect credible; directional edge promising but suspect — events cluster into ~15–25 episodes, single year, NVDA's number is essentially one episode (April bottom). Same regime-risk that killed rows 9. Now under forward test (gex_negative in whale_eval) |
 | 12 | **195m volume-profile swing rules (POC/VAH/VAL)** — 8-symbol cohort, 6 months, 2,016 bars scanned, 69 trades | **−0.21R/trade** (95% CI −0.43..+0.01), hit rate 41%. Negative on 6 of 8 names; leave-one-out stable (−0.15 to −0.31). Every parameter setting tested lands at or below zero. **The veto filters are anti-predictive**: signals taken −0.21R vs signals rejected −0.04R | ❌ no edge; filters actively select worse trades |
+| 13 | **GEX overlay on the 195m spec rules** — directional gate + volatility stop-width overlay, bounded by oracles (historical GEX unobtainable, see conclusion 3) | Perfect direction oracle caps the gain at **+0.37R** (keeps 50% of trades); row 11's measured GEX tilt implies only **+0.02..+0.04R** against SE 0.12. Stop-width channel inert even with perfect volatility foresight (−0.21R to −0.07R vs −0.07R baseline). An apparent high-vs-low-vol spread of +0.48R dies under permutation (p=0.085 raw, **p=0.48** corrected for five buckets) | ❌ gate costs more sample size than it can buy; vol overlay wrong channel |
 
 ## The three conclusions
 
@@ -53,6 +54,16 @@ Every number below was produced by code in this repo against saved raw data.
    payoff; this one degrades, which is the signature of a selection rule picking
    up noise. Even granting every ambiguous intrabar fill to the target rather
    than the stop, the pooled mean only reaches −0.10R, gross of costs.
+
+5. **Overlays cannot rescue a signal that does not predict.** Adding a gate to
+   the 195m rules costs sample size that must be paid back in expectancy, and on
+   a system already indistinguishable from random entry that trade never clears.
+   A *perfect* directional oracle lifts the spec rules only to +0.37R; the GEX
+   tilt measured in row 11 implies a hundredth of that. Full working in
+   `SPEC_195M_TEST.md`; harness in `gex_feasibility.py`. The generalisable
+   lesson is the oracle technique itself — bound a proposed filter with a
+   version that reads the future before paying for the data to build the real
+   one.
 
 ## Practical playbook this supports
 

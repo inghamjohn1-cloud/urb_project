@@ -142,6 +142,107 @@ each is a one-line change in `vp195_spec.py`:
 Neither 2.1 nor 2.4 affects R-multiples through position sizing, since R is by
 definition normalised by the entry-to-stop distance.
 
+---
+
+## Proposed overlay: dealer gamma (GEX)
+
+Two extensions were proposed: a **directional eligibility gate** (reference-bar
+close above the zero-gamma level for longs, below for shorts) and a
+**volatility-regime overlay** that flexes the section-4 stop cap.
+
+**Historical GEX is not obtainable here.** Option-chain snapshots from the wired
+data source are current-only — there is no `as_of` for a past date — so dealer
+gamma cannot be reconstructed across the test window. `RESEARCH.md` conclusion 3
+already records this: the curated institutional signals, GEX included, have no
+deep history via the API and can only be evaluated forward.
+
+So both proposals were bounded with **oracles** — filters using information no
+vendor could sell, because they read the future. If the perfect version doesn't
+help, the real, noisy version cannot. Engine: `gex_feasibility.py`.
+
+### The directional gate is bounded at +0.37R, and costs sample size
+
+| | n | Expectancy |
+|---|---|---|
+| All spec trades | 103 | −0.073R |
+| **Perfect direction oracle** (keep only trades where the underlying really did move the trade's way over 5 bars) | 51 | **+0.370R** |
+
+A *perfect* directional filter keeps half the trades and lifts expectancy by
+**+0.44R**. Everything a real gate can deliver sits between zero and there,
+scaling roughly with how far its accuracy exceeds a coin flip:
+
+> lift ≈ 0.44R × (accuracy − 0.50) / 0.50
+
+`RESEARCH.md` row 11 measured the GEX directional signal at +0.9% over 5 days —
+a weak tilt, implying accuracy in the low fifties. That maps to a lift of
+**+0.02R to +0.04R**, against a standard error of 0.12R. Undetectable.
+
+Meanwhile the gate makes the statistical problem strictly worse, because
+resolving an edge needs trades and a gate removes them:
+
+| Gate passes | Trades per 6 months | Symbol-years to resolve a +0.15R edge |
+|---|---|---|
+| 80% | 82 | ~12 |
+| 60% | 62 | ~16 |
+| 50% | 52 | ~20 |
+| 35% | 36 | ~28 |
+
+And row 11 flags the GEX *directional* claim as the suspect half of that
+finding — clustered into 15–25 episodes, one year, one name carrying much of it,
+the same failure mode that killed rows 9 and 10. **The gate would spend sample
+size to buy a signal the repo has already flagged as unreplicated.**
+
+### The volatility overlay fails at the channel, not at the input
+
+This is the more promising half of the proposal in principle: row 11's *volatility*
+finding is the part that held up (negative gamma → next-day moves 17% larger).
+But the proposed channel — flexing the section-4 stop cap — is inert:
+
+| Stop-cap rule | n | Expectancy |
+|---|---|---|
+| Spec as written (≤ 2.0 VAW) | 103 | −0.073R |
+| Tighten in high vol / widen in low | 84 | −0.149R |
+| Widen in high vol / tighten in low | 89 | −0.058R |
+| **Perfect** vol oracle, cap at realised range ≤ 1.0× | 77 | −0.205R |
+| **Perfect** vol oracle, cap at ≤ 1.5× | 95 | −0.156R |
+| **Perfect** vol oracle, cap at ≤ 2.0× | 99 | −0.071R |
+
+Even knowing the realised range in advance, conditioning the stop cap on it does
+not beat leaving the cap alone. The problem is not the quality of the volatility
+forecast — it is that stop width is the wrong lever.
+
+### A volatility effect that looked real and wasn't
+
+Splitting trades by trailing-ATR percentile at the reference bar showed a
+0.48R gap: high-vol third **+0.213R** (n=38) against low-vol third **−0.267R**
+(n=37). Tempting, and it survived leave-one-out (+0.12R to +0.32R across all
+eight symbols).
+
+It does not survive an honest test. The quintiles are not monotonic
+(−0.41, −0.16, −0.16, −0.23, +0.37 — one bucket, not a dose-response), and
+permuting the volatility label across the same 103 trades 5,000 times gives:
+
+| Test | Real | p |
+|---|---|---|
+| High-third minus low-third spread | +0.481R | **0.085** |
+| Largest \|mean\| among five quintiles (corrects for having looked at five) | 0.409R | **0.480** |
+
+Neither clears 0.05, and the corrected test is not close. The effect is what
+looking at five buckets on 103 trades produces by chance.
+
+### Where this leaves overlays generally
+
+Every gate is a trade: it must add more expectancy than the sample size it
+destroys. On a system whose entry selection already tests indistinguishable from
+random (see the permutation test above) and which needs ~255 trades to resolve,
+**adding filters is the wrong direction** — it shrinks n toward the point where
+nothing is ever provable. The leverage is in finding an entry premise that
+predicts, not in conditioning one that doesn't.
+
+If GEX is pursued anyway, the honest sequence is: collect it forward for a year
+across a wide universe, test whether it predicts direction *on its own* before
+attaching it to anything, and only then consider it as a gate.
+
 ## Reproducing
 
 ```bash
@@ -150,6 +251,7 @@ python vp195_spec.py --spec samples/cohort.txt --trades     # every trade
 python vp195_spec.py --spec samples/cohort.txt --log out.csv  # spec-8 log
 python vp195_spec.py --spec samples/cohort.txt --state 6    # live eligibility
 python null_test.py                                         # the permutation test
+python gex_feasibility.py                                   # the GEX oracle bounds
 ```
 
 *Research and education only. Not investment advice.*
