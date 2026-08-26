@@ -8,3 +8,4 @@ dashboard.html
 artifact_dashboard.html
 darkpool.html
 !samples/*.csv
+!logs/spec195_trades.csv
