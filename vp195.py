@@ -26,6 +26,7 @@ import csv
 import sys
 
 BUCKET = 0.25          # price-row size used when the profile was built
+                       # (override with --bucket to match the input file)
 VA_FRACTION = 0.70     # value area = 70% of volume
 SWING_BARS = 6         # swing value area - the current leg (~3 sessions)
 COMPOSITE_BARS = 20    # rolling composite value area (~2 weeks)
@@ -45,6 +46,9 @@ MIN_PAYOFF_R = 1.5     # the PRIMARY target (T2, or T1 on a single-target
                        # no minimum - requiring 1R there vetoes ~90% of signals
                        # because the stop and the next structural level sit on
                        # the same scale.
+OPTIMISTIC = False     # see replay(): who wins when a bar holds stop and target
+BREAKEVEN_AFTER = 1    # move the stop to breakeven after this many targets
+                       # fill (1 = after T1). Raise it to let winners breathe.
 TIME_STOP_BARS = 8
 TIME_STOP_R = 0.5
 TRIGGER_OFFSET = 0.05
@@ -80,8 +84,13 @@ def load(path):
         for row in reader:
             if not row:
                 continue
+            # The profile may arrive as one quoted field or as many bare
+            # columns, depending on who wrote the CSV. Rejoin and re-split so
+            # both parse identically.
             hist = {}
-            for pair in row[6:]:
+            for pair in ",".join(row[6:]).split(","):
+                if not pair.strip():
+                    continue
                 bk, _, v = pair.partition(":")
                 hist[int(bk)] = hist.get(int(bk), 0) + int(v)
             bars.append(Bar(row[0], float(row[1]), float(row[2]),
@@ -375,7 +384,13 @@ def replay(bars, sig):
         t.mae_r = min(t.mae_r, side * (b.l if side > 0 else b.h) - side * fill)
         # stop first — if both the stop and a target are inside the bar, assume
         # the stop went first. Bar data can't tell you, so take the bad fill.
-        if (side > 0 and b.l <= cur_stop) or (side < 0 and b.h >= cur_stop):
+        # OPTIMISTIC=True flips it, to bound how much this assumption costs.
+        stop_hit = (side > 0 and b.l <= cur_stop) or (side < 0 and b.h >= cur_stop)
+        if stop_hit and OPTIMISTIC and leg < len(tgts):
+            tp = tgts[leg]
+            if (side > 0 and b.h >= tp) or (side < 0 and b.l <= tp):
+                stop_hit = False                 # give the target the benefit
+        if stop_hit:
             why = "stop" if cur_stop == stop else "breakeven"
             t.exits.append((k, cur_stop, left, why))
             t.exit_i = k
@@ -387,8 +402,8 @@ def replay(bars, sig):
                 t.exits.append((k, tp, f, "T%d" % (leg + 1)))
                 left -= f
                 leg += 1
-                if leg == 1:
-                    cur_stop = fill              # breakeven after T1
+                if leg == BREAKEVEN_AFTER:
+                    cur_stop = fill              # stop to breakeven
             else:
                 break
         if left <= 1e-9:
@@ -432,7 +447,7 @@ def fmt_levels(c):
 
 
 def main():
-    global COMPOSITE_BARS
+    global COMPOSITE_BARS, BUCKET
     ap = argparse.ArgumentParser()
     ap.add_argument("csv")
     ap.add_argument("--equity", type=float, default=100000.0)
@@ -443,9 +458,13 @@ def main():
     ap.add_argument("--composite", type=int, default=COMPOSITE_BARS,
                     help="bars in the rolling composite value area")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--bucket", type=float, default=BUCKET,
+                    help="price-row size the input profiles were built with")
+    ap.add_argument("--label", default="", help="symbol name for the summary line")
     args = ap.parse_args()
 
     COMPOSITE_BARS = args.composite
+    BUCKET = args.bucket
     bars = load(args.csv)
     start = max(SMA_BARS, COMPOSITE_BARS + OVERLAP_LOOKBACK, ATR_BARS) + 1
 

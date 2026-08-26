@@ -4,10 +4,17 @@ A fully mechanical swing plan for the **195-minute** chart, driven by volume
 profile: **POC** (point of control), **VAH** (value area high), **VAL** (value
 area low). Every rule below is testable — nothing says "if it looks strong."
 
-`vp195.py` implements these rules exactly and replays them over real 195m bars.
-**Read §10 before trading any of it**: run over 6 months of RGLD, the rules
-produced 11 signals and a *negative* expectancy. This is a specification and a
-research harness, not a validated edge.
+> ## ⚠️ These rules were tested and they do not work
+>
+> Across **8 symbols, 6 months, 2,016 bars and 69 trades**, this plan returned
+> **−0.21R per trade**. It was negative on 6 of the 8 names, no single symbol
+> drove the result, and every parameter setting tried landed at or below zero.
+> Worse, the veto filters in §6 are *anti-predictive*: the signals they let
+> through did **worse** than the ones they rejected.
+>
+> **Do not trade this.** §10 has the full evidence. The document is kept as a
+> specification, a worked example of the mechanics, and a record of what failed
+> — the sections below describe the rules **as tested**, not as recommended.
 
 ---
 
@@ -295,52 +302,93 @@ for exactly that geometry.
 
 ## 10. What happened when this was actually run
 
-`vp195.py` replayed every rule over **RGLD, 2026-02-02 → 2026-08-25**, 284
-bars of 195m built from 1-minute bars (volume bucketed at each minute's VWAP,
-$0.25 rows, RTH only). 252 bars scanned after warmup.
+### The single-symbol run that looked merely inconclusive
+
+`vp195.py` replayed every rule over **RGLD, 2026-02-02 → 2026-08-25**, 284 bars
+of 195m built from 1-minute bars (volume bucketed at each minute's VWAP, RTH
+only). Result: 11 signals, 9 triggered, **−0.12R** expectancy. Nine trades can't
+distinguish a bad plan from an unlucky one, so this settled nothing.
+
+### The cohort run that settled it
+
+The same rules, unchanged, over **8 symbols** — the sector-diverse cohort from
+`RESEARCH.md` row 10 (JPM, XOM, UNH, WMT, CAT, DIS) plus RGLD and NEM as a
+gold-complex pair — same 6-month window, 2,016 bars scanned.
 
 | | |
 |---|---|
-| Signals passing every filter | **11** (59 vetoed) |
-| Triggered | 9 |
-| Expectancy | **−0.12R** per trade |
-| Hit rate | 44% |
-| Setup A | n=2, +0.91R avg |
-| Setup B | n=3, −0.11R avg |
-| Setup C | n=4, −0.63R avg |
+| Trades taken | **69** |
+| Expectancy | **−0.21R** per trade (95% CI **−0.43 .. +0.01**) |
+| Hit rate | 41% |
+| Symbols negative | **6 of 8** |
+| Leave-one-out range | −0.15R to −0.31R — no single name drives it |
 
-**Read that honestly.** Nine trades on one symbol over six months is not a
-backtest — it cannot distinguish a −0.12R edge from a +0.3R one, and the window
-is dominated by a single 20% decline followed by a single 40% rally. What the
-run *does* establish, because these are structural rather than statistical
-findings, is the four corrections already folded into the rules above:
+Per symbol: JPM +0.26R (n=12), NEM +0.41R (n=9), RGLD −0.12R (n=9),
+CAT −0.25R (n=14), WMT −0.40R (n=11), DIS −0.64R (n=5), UNH −0.83R (n=5),
+XOM −1.21R (n=4). By setup: A −0.18R (n=21), B −0.08R (n=10), C −0.26R (n=38).
 
-1. Triggers cannot key off the 20-bar composite — its VAL is a whole leg below
-   price in a trend, so Setup A fired **zero** times in 232 bars (§2).
-2. A 1.0R-to-T1 filter vetoes ~90% of signals for arithmetic reasons (§5).
-3. An SMA(50) trend gate admits 4% of bars — a blackout, not a filter (§3).
-4. "Regime not against me" is not "balanced", and conflating them made Setup C
-   short a runaway uptrend three times (§4.3).
+### Four results that make this a verdict, not a small sample
 
-**Before risking real size**, paper or minimum-size **at least 30 closed
-trades across several symbols**, logging:
+**1. The filters are backwards.** Signals that passed every veto in §6 returned
+**−0.21R**. Signals the filters *rejected* returned **−0.04R** (n=379). The
+"smart" part of the plan reliably selects the worse half.
 
-`date_in, symbol, setup, regime, sVAL/sPOC/sVAH, cVAL/cPOC/cVAH, SW, ATR, entry,
-stop, R_per_share, shares, T1/T2/T3, exit_reason, bars_held, MFE_R, MAE_R, realised_R`
+**2. Raising the reward:risk bar makes it worse, monotonically.**
 
-Judge it on **expectancy in R** (> +0.15R net of costs or it's noise), **hit
-rate by setup** (Setup C is the one to cut first), **MAE distribution** (if
-winners rarely trade more than −0.5R against you, the stops are too wide and
-every R figure here is flattering), and **time-stop cost**.
+| Minimum payoff | n | Expectancy |
+|---|---|---|
+| ≥ 1.0R | 109 | −0.02R |
+| ≥ 1.5R | 69 | −0.21R |
+| ≥ 2.0R | 41 | −0.26R |
+| ≥ 2.5R | 22 | −0.68R |
 
-Kill any rule that doesn't earn its place. `RESEARCH.md` is the standard: most
-plausible-sounding ideas in this repo failed their honest test.
+A genuine edge *improves* when you demand better payoff. Degrading like this is
+the signature of a selection rule fitting noise.
 
----
+**3. No parameter setting rescues it.** Swing window 4/6/8/10/12 bars: +0.01,
+−0.21, +0.04, −0.11, −0.07. Trend gate SMA 10/20/30/50: −0.16, −0.21, −0.19,
+−0.20. Every confidence interval straddles or sits below zero. The best number
+in the whole search (+0.04R) is the maximum of 17 configurations — exactly the
+kind of figure that is pure selection.
+
+**4. The failure is at entry, not exit.** Stopped-out trades (n=34) had a median
+MFE of just **+0.44R**, and **53% never reached +0.5R** — they went nowhere from
+the start. Consistent with that, changing the exit rule barely moves the result:
+breakeven after T1 −0.21R, after T2 −0.19R, never −0.18R. And granting every
+ambiguous intrabar fill to the target instead of the stop — the most optimistic
+assumption the bar data permits — only lifts the pooled mean to **−0.10R**,
+still negative and still gross of commissions and slippage.
+
+### What is still worth keeping
+
+The structural findings survive the verdict, because they're mechanical rather
+than statistical, and they apply to any volume-profile system on this timeframe:
+
+1. Triggers cannot key off a 20-bar composite value area — it runs a median
+   7.5% of price wide, so in a trend its VAL sits an entire leg below price and
+   a pullback setup fires **zero** times in 232 bars (§2).
+2. A minimum-R filter on the *first* scale-out vetoes ~90% of signals, because
+   on a 195m chart one bar's range ≈ the distance to the next structural level
+   (§5).
+3. An SMA(50) trend gate on 195m admits 4.3% of bars — a blackout, not a filter
+   (§3).
+4. "Regime not against me" ≠ "balanced" (§4.3).
+
+### If you want to keep going
+
+The honest next step is not to re-tune these rules — that search has been run
+and it came up empty. It's to ask whether the entry premise is right at all.
+The data says a reclaim of a value-area edge does not, on its own, precede
+directional movement in the next few sessions. Anything built from here needs a
+different reason to enter; the profile levels may still be useful as *exit* and
+position-management structure, which this test did not evaluate on its own.
 
 ## Running it
 
 ```bash
+python vp195_cohort.py --spec samples/cohort.txt   # the 8-symbol verdict above
+python vp195_cohort.py --spec samples/cohort.txt --trades   # every trade
+
 python vp195.py bars.csv                 # scan, list signals + replayed outcomes
 python vp195.py bars.csv --levels 8      # current level tiers + regime flag
 python vp195.py bars.csv --show-vetoed   # every rejected signal and why
@@ -356,5 +404,5 @@ from 1-minute bars by bucketing each minute's volume at its VWAP.
 ## Disclaimer
 
 For research and education only. Not investment advice. These rules are
-mechanical and **unvalidated** — §10 is the whole of the evidence. Confirm every
-level on your own chart and manage your own risk.
+mechanical and were **tested and found to have no edge** — see §10. They are
+published as a specification and a negative result, not as a strategy to trade.

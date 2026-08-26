@@ -1,0 +1,11 @@
+# One "path:price-row-size" per line. Row size is ~0.1% of the symbol's price,
+# which keeps profile resolution comparable across very different price levels.
+# Feed to vp195_cohort.py with --spec.
+samples/rgld_195m.csv:0.25
+samples/jpm_195m.csv:0.30
+samples/xom_195m.csv:0.15
+samples/unh_195m.csv:0.35
+samples/wmt_195m.csv:0.13
+samples/cat_195m.csv:0.75
+samples/dis_195m.csv:0.10
+samples/nem_195m.csv:0.10

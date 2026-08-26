@@ -20,6 +20,7 @@ Every number below was produced by code in this repo against saved raw data.
 | 9 | Single-name: FADE unusual bullish flow (euphoria) | −2.0% 21d edge in tech cohort (NVDA/TSLA/AMD/AAPL/META/PLTR)… | ⚠️ see row 10 |
 | 10 | **Row 9 robustness check** — same test on a diverse cohort (JPM/XOM/UNH/WMT/CAT/DIS) | **−0.25% 21d edge — the effect disappears out-of-sample** | ❌ does not generalize; at best a hot-momentum-name/regime artifact |
 | 11 | **Dealer gamma (GEX), 1y history, 5 watchlist names** — days with net gamma < 0 | Vol: next-day \|move\| +17% larger (2.13% vs 1.83%, mechanism confirmed). Direction: +0.9%/5d, +1.6%/10d, +3.6%/21d pooled (n≈125 days) | ⚠️ vol effect credible; directional edge promising but suspect — events cluster into ~15–25 episodes, single year, NVDA's number is essentially one episode (April bottom). Same regime-risk that killed rows 9. Now under forward test (gex_negative in whale_eval) |
+| 12 | **195m volume-profile swing rules (POC/VAH/VAL)** — 8-symbol cohort, 6 months, 2,016 bars scanned, 69 trades | **−0.21R/trade** (95% CI −0.43..+0.01), hit rate 41%. Negative on 6 of 8 names; leave-one-out stable (−0.15 to −0.31). Every parameter setting tested lands at or below zero. **The veto filters are anti-predictive**: signals taken −0.21R vs signals rejected −0.04R | ❌ no edge; filters actively select worse trades |
 
 ## The three conclusions
 
@@ -38,6 +39,20 @@ Every number below was produced by code in this repo against saved raw data.
    (sweeps, repeated hits), dark-pool blocks, GEX have no deep history via the
    API. They can only be evaluated live/forward. Treat them as discretionary
    context, not proven edge.
+
+4. **A rules-based volume-profile swing plan on 195m bars showed no edge, and
+   its filters made things worse.** Full write-up in
+   `PLAN_195M_VOLUME_PROFILE.md` §10; harness in `vp195.py` / `vp195_cohort.py`.
+   Two things are worth carrying forward regardless of the verdict. First, the
+   failure is at *entry*, not exit: stopped-out trades had a median MFE of only
+   +0.44R and 53% never reached +0.5R, so the pattern simply doesn't precede
+   directional movement — and changing the exit rules (breakeven after T1 vs T2
+   vs never) moved the pooled mean by 0.03R, i.e. nothing. Second, **raising the
+   reward:risk threshold made results monotonically worse** (−0.02R at 1.0R,
+   −0.26R at 2.0R, −0.68R at 2.5R). A real edge improves when you demand better
+   payoff; this one degrades, which is the signature of a selection rule picking
+   up noise. Even granting every ambiguous intrabar fill to the target rather
+   than the stop, the pooled mean only reaches −0.10R, gross of costs.
 
 ## Practical playbook this supports
 

@@ -133,6 +133,19 @@ ol.steps li::before{
 .check p{font-size:.92rem;color:var(--muted)}
 .check .verdict{font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--long)}
 
+.banner{
+  margin-top:26px;padding:16px 18px;border:1px solid var(--stop);
+  border-radius:3px;background:var(--surface);
+  display:flex;flex-direction:column;gap:7px;
+}
+.banner .eyebrow{color:var(--stop)}
+.banner p:last-child{font-size:.95rem;color:var(--ink)}
+.caveat-inline{
+  font-size:.93rem;color:var(--muted);border-left:2px solid var(--stop);
+  padding-left:14px;
+}
+.findings{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px}
+.findings li{padding-left:2px}
 .note{
   border-left:2px solid var(--stop);padding:2px 0 2px 18px;
   display:flex;flex-direction:column;gap:12px;
@@ -155,6 +168,10 @@ footer{margin-top:72px;padding-top:22px;border-top:1px solid var(--rule);
   <p class="lede">Most of the day's volume trades inside a narrow band. The plan is one bet, made over and over: price leaves that band, comes back to test its edge, and if the edge holds, you go with it.</p>
   <div class="meta">
     <span>RGLD &middot; NASDAQ</span><span>14&ndash;24 August 2026</span><span>real bars, real signal</span>
+  </div>
+  <div class="banner">
+    <p class="eyebrow">Tested &mdash; and it doesn't work</p>
+    <p>Across <strong>8 stocks, 6 months and 69 trades</strong>, these rules lost about a fifth of the risked amount per trade. This page explains what the levels mean and how the mechanics work. It is <strong>not</strong> a strategy to trade.</p>
   </div>
 </header>
 
@@ -209,6 +226,7 @@ footer{margin-top:72px;padding-top:22px;border-top:1px solid var(--rule);
   <div class="col stack">
     <h2>One real trade, start to finish</h2>
     <p>This is not a made-up example. It's what the rules produced on RGLD on <span class="num">14 August 2026</span>, from real 1-minute data. The shaded band is the value the previous six bars built: <span class="num">228.75</span> to <span class="num">238.25</span>.</p>
+    <p class="caveat-inline">It is also a <em>winner</em>, chosen to show the mechanics cleanly. Be clear about what that means: across the full test, <strong>41% of these trades won</strong> and the average one lost money. Read this as a diagram of how the pieces fit together, not as evidence the pattern pays.</p>
   </div>
   <figure style="margin-top:8px">
     <div class="scroller"><svg viewBox="0 0 980 470" class="chart" role="img" aria-label="RGLD 195-minute chart, 12 to 24 August 2026, showing the swing value band, the signal bar, entry, stop and three targets.">
@@ -331,7 +349,8 @@ footer{margin-top:72px;padding-top:22px;border-top:1px solid var(--rule);
 <section>
   <div class="col stack">
     <h2>What had to be true first</h2>
-    <p>The signal alone isn't enough. Four checks run before any order goes in, and any one of them failing means no trade.</p>
+    <p>The signal alone isn't enough. Four checks run before any order goes in, and any one of them failing means no trade. This trade passed all four.</p>
+    <p class="caveat-inline">Testing later showed these checks don't do their job: across 69 trades, the ones that passed all four performed <em>worse</em> than the ones they rejected. They are shown here because they're part of the plan as written, not because they help.</p>
   </div>
   <div class="checks" style="margin-top:8px">
     <div class="check"><p class="verdict">passed</p><h3>Is the trend up?</h3>
@@ -347,10 +366,15 @@ footer{margin-top:72px;padding-top:22px;border-top:1px solid var(--rule);
 
 <section class="col">
   <div class="note">
-    <p class="eyebrow">Before you trade any of this</p>
-    <p>These rules have not been proven to make money. Run over six months of RGLD they produced <strong>eleven signals, nine trades, and a small net loss</strong>. Nine trades on one stock cannot tell a good plan from a bad one &mdash; it's far too few to mean anything either way.</p>
-    <p>What the testing <em>did</em> settle is mechanical: which levels the triggers can sensibly key off, and where the earlier draft of the plan was simply unworkable. That part is worth keeping. The edge is still unproven, so paper-trade at least thirty of these across several stocks before risking real size.</p>
-  </div>
+    <p class="eyebrow">What the testing found</p>
+    <p>The first version of this page said the rules were unproven. They are no longer unproven &mdash; they were run over eight stocks and six months, and they lose money. Three results make that a verdict rather than a small sample:</p>
+    <ul class="findings">
+      <li><strong>The filters are backwards.</strong> Trades that passed every safety check did <em>worse</em> (&minus;0.21R) than the ones the checks threw out (&minus;0.04R).</li>
+      <li><strong>Demanding a better payoff made it worse, every step.</strong> Requiring 1&times; reward-to-risk gave &minus;0.02R; requiring 2.5&times; gave &minus;0.68R. A real edge improves when you get pickier. This one degrades.</li>
+      <li><strong>The problem is the entry, not the exits.</strong> Trades that got stopped out had typically moved only +0.44R in your favour first &mdash; half never made even half the risked amount. Changing when the stop moves to breakeven shifted the overall result by 0.03R, which is nothing.</li>
+    </ul>
+    <p>What survives is the vocabulary and the mechanics on this page: what POC, VAH and VAL are, how a value band is built, how to size a position off a stop. Those are worth knowing. The entry premise &mdash; that price reclaiming a value-area edge tends to keep going &mdash; is the part the data rejects.</p>
+    </div>
 </section>
 
 <footer class="col">Research and education only. Not investment advice. Levels computed from 1-minute RGLD bars, regular hours only.</footer>
