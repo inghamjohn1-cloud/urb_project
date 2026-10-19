@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Massive",
+      "mcp__TradingView"
+    ]
+  }
+}
