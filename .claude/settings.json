@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Massive",
+      "mcp__TradingView",
+      "mcp__Unusual_Whales"
+    ]
+  }
+}

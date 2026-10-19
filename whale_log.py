@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime as _dt
 import json
 import os
 import statistics
@@ -27,7 +28,8 @@ import sys
 COLUMNS = ["date", "ticker", "close", "ret_21d", "ret_63d",
            "net_prem_5d", "flow_z", "flow_state",
            "dp_prints", "dp_premium", "dp_largest", "dp_at_or_above_close",
-           "gex_call_gamma", "gex_put_gamma", "gex_net_gamma"]
+           "gex_call_gamma", "gex_put_gamma", "gex_net_gamma",
+           "days_to_earnings", "earnings_date"]
 
 
 def _f(v):
@@ -84,6 +86,27 @@ def darkpool_entry(dp_rows, close, have_data):
     }
 
 
+def earnings_entry(history_rows, entry_date):
+    """Find next earnings date after entry_date from UW history rows."""
+    blank = {"days_to_earnings": "", "earnings_date": ""}
+    future = []
+    for r in history_rows:
+        e = r.get("earnings")
+        if not e or not isinstance(e, dict):
+            continue
+        row_date = str(r.get("date", ""))[:10]
+        if row_date > entry_date:
+            future.append(row_date)
+    if not future:
+        return blank
+    next_date = min(future)
+    try:
+        delta = (_dt.date.fromisoformat(next_date) - _dt.date.fromisoformat(entry_date)).days
+    except ValueError:
+        return blank
+    return {"days_to_earnings": delta, "earnings_date": next_date}
+
+
 def gex_entry(gex_rows, entry_date):
     """Dealer gamma exposure for the entry's date (or blank if absent)."""
     blank = {"gex_call_gamma": "", "gex_put_gamma": "", "gex_net_gamma": ""}
@@ -132,6 +155,7 @@ def main(argv=None):
         except (OSError, json.JSONDecodeError):
             pass
     entry.update(gex_entry(gex, entry["date"]))
+    entry.update(earnings_entry(_rows(args.history), entry["date"]))
 
     os.makedirs(os.path.dirname(args.journal) or ".", exist_ok=True)
     exists = os.path.exists(args.journal)
