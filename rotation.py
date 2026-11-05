@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-# The 11 SPDR sector ETFs mapped to the sector names the UW sector-tide
+# The 11 SPDR sector ETFs plus the XBI biotech ETF, mapped to the sector names the UW sector-tide
 # endpoint expects. SPY is the benchmark (not a rotation candidate).
 SECTOR_ETFS: dict[str, dict[str, str]] = {
     "XLK": {"name": "Technology", "uw_sector": "Technology"},
@@ -23,6 +23,8 @@ SECTOR_ETFS: dict[str, dict[str, str]] = {
     "XLB": {"name": "Materials", "uw_sector": "Basic Materials"},
     "XLRE": {"name": "Real Estate", "uw_sector": "Real Estate"},
     "XLC": {"name": "Communication Services", "uw_sector": "Communication Services"},
+    # Industry ETF, not a SPDR sector: no UW sector-tide mapping.
+    "XBI": {"name": "Biotech", "uw_sector": ""},
 }
 
 BENCHMARK = "SPY"
@@ -93,6 +95,7 @@ class SectorScore:
     above_sma200: bool | None
     uptrend: bool | None         # price>SMA50 and SMA50>SMA200
     atr: float | None
+    ret_1d: float | None = None      # last close vs the prior close, %
     flow_bull: bool | None = None    # options-flow confirmation (sector tide)
     net_call_premium: float | None = None
     live_price: float | None = None  # real-time price (Massive snapshot)
@@ -142,6 +145,7 @@ def build_score(ticker: str, candles: list[dict], bench_closes: list[float]) -> 
         rs_3m=rs_3m, momentum=momentum,
         above_sma50=above50, above_sma200=above200, uptrend=uptrend,
         atr=atr(candles),
+        ret_1d=pct_return(closes, 1),
     )
 
 

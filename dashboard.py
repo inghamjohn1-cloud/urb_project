@@ -143,6 +143,12 @@ tbody tr:last-child td{border-bottom:none}
 .tags{margin-top:8px;font-size:11.5px;color:var(--muted)}
 .empty{padding:12px 16px;color:var(--muted);font-size:13px}
 footer{color:var(--muted);font-size:12px;line-height:1.6;margin-top:8px}
+.sowhat{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--series);
+  border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:14.5px}
+.sowhat b{font-weight:680}
+.legend{padding:4px 14px 14px;color:var(--ink-2);font-size:12.5px;line-height:1.6}
+.legend b{color:var(--ink);font-weight:640}
+.lvl.z .v{font-weight:680}
 """
 
 TOGGLE_JS = """
@@ -227,8 +233,38 @@ def _whale_chip(score, net_prem, title="") -> str:
     return f'<span class="chip {cls}"{t}>{mark}{prem}</span>'
 
 
+def _day_chip(chg) -> str:
+    return _live_chip(chg)
+
+
+def so_what(scores, bench=None) -> str:
+    """One plain-language paragraph: what passes the screen and how firmly."""
+    ins = [s for s in scores if s.signal == "ROTATE IN"]
+    parts = []
+    if ins:
+        names = ", ".join(s.ticker for s in ins)
+        parts.append(f"{len(ins)} of {len(scores)} sectors pass the rotate-in screen — {names}.")
+        lead = ins[0]
+        day = (f" and closed the last session {lead.ret_1d:+.1f}%" if lead.ret_1d is not None else "")
+        parts.append(f"{lead.ticker} ({lead.name}) leads with a score of {lead.score:.0f}{day}.")
+        weak = [s for s in ins if s.rs_3m is not None and s.rs_3m < 1.0]
+        for s in weak:
+            parts.append(f"{s.ticker} barely passes: its 3-month edge over SPY is only {s.rs_3m:+.1f}%.")
+    else:
+        parts.append("Nothing passes the rotate-in screen today — the trend filter is keeping you defensive.")
+    if bench:
+        last, s50, s200 = bench.get("last"), bench.get("sma50"), bench.get("sma200")
+        if last and s200 and s50 and s200 < last < s50:
+            parts.append("SPY closed below its 50-day average, so the broad tape is softer "
+                         "than the regime label suggests.")
+        elif last and s200 and last < s200:
+            parts.append("SPY is below its 200-day average: size down and favour defensives.")
+    return " ".join(parts)
+
+
 def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
-                live_mode=False, whale_mode=False, source_note=None) -> str:
+                live_mode=False, whale_mode=False, source_note=None,
+                data_through=None, bench=None, risk_dollars=100.0) -> str:
     up_col, dn_col = "var(--good)", "var(--crit)"
     n_up = sum(1 for s in scores if s.above_sma200)
     n_in = sum(1 for s in scores if s.signal == "ROTATE IN")
@@ -236,6 +272,25 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
     top = scores[0] if scores else None
 
     reg_cls = {"RISK-ON": "on", "RISK-OFF": "off"}.get(regime, "neutral")
+    day_mode = not live_mode and not use_flow
+    day_lab = "1D"
+    through_txt = ""
+    if data_through:
+        try:
+            d = _dt.date.fromisoformat(data_through)
+            day_lab = d.strftime("%a")
+            through_txt = d.strftime("%a %d %b %Y")
+        except ValueError:
+            through_txt = data_through
+    col_lab = "Live" if live_mode else ("Flow" if use_flow else day_lab)
+    bench_rs = ""
+    if bench and bench.get("ret_3m") is not None:
+        bench_rs = f" (SPY {bench['ret_3m']:+.1f}%)"
+    regime_detail = html.escape(detail)
+    if bench and bench.get("sma50") and bench.get("last"):
+        rel = "above" if bench["last"] > bench["sma50"] else "below"
+        cls = "pos" if rel == "above" else "neg"
+        regime_detail += f' · <span class="{cls}">{rel} 50d {bench["sma50"]:.2f}</span>'
 
     rows = []
     for s in scores:
@@ -250,7 +305,7 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
           {_ret_cell(s.ret_1m)}{_ret_cell(s.ret_3m)}{_ret_cell(s.ret_6m)}
           {_ret_cell(s.rs_3m)}
           <td>{_trend_chip(s.uptrend)}</td>
-          <td>{_live_chip(s.live_chg) if live_mode else _flow_chip(s.flow_bull, use_flow)}</td>
+          <td>{_live_chip(s.live_chg) if live_mode else (_day_chip(s.ret_1d) if day_mode else _flow_chip(s.flow_bull, use_flow))}</td>
           {f'<td>{_whale_chip(s.whale_score, s.whale_net_prem, (s.whale_label or "") + (f" · 5d flow {s.whale_flow_5d:+,.0f} sh" if s.whale_flow_5d is not None else ""))}</td>' if whale_mode else ""}
           <td><div class="scorebar"><div class="track"><div class="fill" style="width:{score_pct:.0f}%"></div></div>
               <span class="tnum">{s.score:.0f}</span></div></td>
@@ -266,15 +321,26 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
                 reward = s.target - s.entry
                 if risk > 0:
                     rr = f'<div class="lvl"><span class="k">R:R</span><span class="v">{reward/risk:.1f} : 1</span></div>'
-            tags = ", ".join(s.notes) if s.notes else ""
+            size = ""
+            tag_bits = []
+            if s.entry and s.stop and s.entry > s.stop:
+                dist = s.entry - s.stop
+                sh = int(risk_dollars // dist)
+                size = (f'<div class="lvl z"><span class="k">Size @ ${risk_dollars:,.0f} risk</span>'
+                        f'<span class="v tnum">{sh} sh · ≈${sh * s.entry:,.0f}</span></div>')
+                tag_bits.append(f"ATR {s.atr:.2f} · stop distance {dist:.2f}")
+            if s.rs_3m is not None:
+                tag_bits.append(f"RS {s.rs_3m:+.1f}% vs SPY")
+            tags = " · ".join(tag_bits)
             lead_cards.append(f"""
             <div class="lead">
               <div class="ltk">{html.escape(s.ticker)}</div>
               <div class="lnm">{html.escape(s.name)}</div>
-              <div class="lvl"><span class="k">Entry</span><span class="v tnum">{_fmt(s.entry)}</span></div>
-              <div class="lvl s"><span class="k">Stop (2·ATR)</span><span class="v tnum">{_fmt(s.stop)}</span></div>
-              <div class="lvl t"><span class="k">Target (3·ATR)</span><span class="v tnum">{_fmt(s.target)}</span></div>
+              <div class="lvl"><span class="k">Ref. price (last close)</span><span class="v tnum">{_fmt(s.entry)}</span></div>
+              <div class="lvl s"><span class="k">Stop (2×ATR)</span><span class="v tnum">{_fmt(s.stop)}</span></div>
+              <div class="lvl t"><span class="k">Target (3×ATR)</span><span class="v tnum">{_fmt(s.target)}</span></div>
               {rr}
+              {size}
               <div class="tags">{html.escape(tags)}</div>
             </div>""")
         leaders_html = f'<div class="leaders">{"".join(lead_cards)}</div>'
@@ -298,19 +364,21 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
   <header class="top">
     <div>
       <h1>Sector Rotation — Daily Swing</h1>
-      <div class="sub">Generated {html.escape(generated)}</div>
+      <div class="sub">{f"Data through {html.escape(through_txt)} close · " if through_txt else ""}generated {html.escape(generated)}</div>
     </div>
     <button class="toggle" onclick="__t()">◐ Theme</button>
   </header>
 
+  <div class="sowhat"><b>So what:</b> {html.escape(so_what(scores, bench))}</div>
+
   <div class="kpis">
     <div class="kpi"><div class="lab">Market regime</div>
       <div class="val sm regime {reg_cls}">{html.escape(regime)}</div>
-      <div class="nm">{html.escape(detail)}</div></div>
+      <div class="nm">{regime_detail}</div></div>
     <div class="kpi"><div class="lab">Rotate-in now</div><div class="val">{n_in}</div>
       <div class="nm">of {len(scores)} sectors</div></div>
     <div class="kpi"><div class="lab">Breadth &gt; 200d</div><div class="val">{n_up}/{len(scores)}</div>
-      <div class="nm">sectors in uptrend</div></div>
+      <div class="nm">sectors above 200-day average</div></div>
     <div class="kpi"><div class="lab">Top rank</div><div class="val sm">{top_kpi}</div>
       <div class="nm">highest score</div></div>
   </div>
@@ -322,15 +390,28 @@ def render_html(scores, regime, detail, use_flow, spark_by_ticker, generated,
       <thead><tr>
         <th>#</th><th class="l">Sector</th><th class="l">30d</th>
         <th>1M</th><th>3M</th><th>6M</th><th>RS</th>
-        <th>Trend</th><th>{"Live" if live_mode else "Flow"}</th>{"<th>Whale</th>" if whale_mode else ""}<th>Score</th><th class="l">Signal</th>
+        <th>Trend</th><th>{col_lab}</th>{"<th>Whale</th>" if whale_mode else ""}<th>Score</th><th class="l">Signal</th>
       </tr></thead>
       <tbody>{"".join(rows)}</tbody>
     </table>
     </div>
+    <div class="legend">
+      <b>1M / 3M / 6M</b> — price change over 21, 63 and 126 trading days.
+      <b>RS</b> — relative strength: the 3-month return minus SPY's{bench_rs}.
+      <b>Trend</b> — up = price above the 50-day average and the 50-day above the 200-day.
+      <b>{html.escape(col_lab)}</b> — {"today's live change" if live_mode else ("options-flow confirmation" if use_flow else "the last close vs the prior close")}.
+      <b>Score</b> — 60% momentum (1M 30% · 3M 40% · 6M 30%) and 40% RS, each ranked against the other
+      sectors and scaled 0–100; halved when the trend is down, cut a further 40% below the 200-day{"; whale conviction adds or subtracts up to 12 points" if whale_mode else ""}.<br>
+      <b>Signal</b> — Rotate in = top 3 by score with price above its 50- and 200-day and positive momentum.
+      Rotate out = bottom 3, or price below its 200-day. Everything else = Hold.
+    </div>
   </div>
 
   <div class="card">
-    <h2>Swing levels — leaders (ATR-based, 2R stop / 3R target)</h2>
+    <h2>Swing levels — rotate-in names (stop 2×ATR below, target 3×ATR above)</h2>
+    <div class="legend" style="padding-bottom:0">ATR = average true range over 14 days: the sector's typical daily move.
+      Size = shares that risk ${risk_dollars:,.0f} if the stop is hit (${risk_dollars:,.0f} ÷ stop distance, rounded down).
+      Reference price is the last close, not an entry. Levels are mechanical — check them against your chart structure.</div>
     {leaders_html}
   </div>
 

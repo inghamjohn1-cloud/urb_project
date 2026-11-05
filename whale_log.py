@@ -86,25 +86,45 @@ def darkpool_entry(dp_rows, close, have_data):
     }
 
 
+EARNINGS_CYCLE_DAYS = 91  # quarterly reporting cadence
+
+
 def earnings_entry(history_rows, entry_date):
-    """Find next earnings date after entry_date from UW history rows."""
+    """Next earnings date relative to entry_date.
+
+    UW daily history only carries an `earnings` object on days a report
+    already happened, so a future date is rarely present. When it is, use it;
+    otherwise project the most recent report forward one quarter and mark the
+    date "est" (companies report on a steady quarterly cadence, usually within
+    a week of the projection).
+    """
     blank = {"days_to_earnings": "", "earnings_date": ""}
-    future = []
+    try:
+        entry = _dt.date.fromisoformat(entry_date)
+    except ValueError:
+        return blank
+    dates = []
     for r in history_rows:
         e = r.get("earnings")
         if not e or not isinstance(e, dict):
             continue
-        row_date = str(r.get("date", ""))[:10]
-        if row_date > entry_date:
-            future.append(row_date)
-    if not future:
-        return blank
-    next_date = min(future)
-    try:
-        delta = (_dt.date.fromisoformat(next_date) - _dt.date.fromisoformat(entry_date)).days
-    except ValueError:
-        return blank
-    return {"days_to_earnings": delta, "earnings_date": next_date}
+        try:
+            dates.append(_dt.date.fromisoformat(str(r.get("date", ""))[:10]))
+        except ValueError:
+            continue
+    future = [d for d in dates if d > entry]
+    if future:
+        nxt, label = min(future), ""
+    else:
+        past = [d for d in dates if d <= entry]
+        if not past:
+            return blank
+        nxt = max(past) + _dt.timedelta(days=EARNINGS_CYCLE_DAYS)
+        while nxt <= entry:
+            nxt += _dt.timedelta(days=EARNINGS_CYCLE_DAYS)
+        label = " est"
+    return {"days_to_earnings": (nxt - entry).days,
+            "earnings_date": nxt.isoformat() + label}
 
 
 def gex_entry(gex_rows, entry_date):

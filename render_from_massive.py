@@ -198,8 +198,9 @@ def watchlist_card(journal_path: str) -> str:
         else:
             flow_cell = state_chip(r.get("flow_state"), num(r.get("flow_z")))
 
-        if days_to_e is not None and days_to_e <= 60:
-            earn_cell = f'<span class="wchip wwarn">{int(days_to_e)}d — {edate}</span>' if days_to_e <= 14 else f'<span class="wchip wna">{int(days_to_e)}d</span>'
+        if days_to_e is not None:
+            earn_cell = (f'<span class="wchip wwarn">{int(days_to_e)}d — {_html.escape(edate)}</span>' if days_to_e <= 14
+                         else f'<span class="wchip wna">{int(days_to_e)}d · {_html.escape(edate)}</span>')
         else:
             earn_cell = '<span class="wchip wna">—</span>'
 
@@ -231,7 +232,8 @@ def watchlist_card(journal_path: str) -> str:
       <tbody>{"".join(body)}</tbody>
     </table></div>
     <div class="empty">🟢 capitulation = your buy-watch condition · 🔥 euphoria = not a buy day ·
-    NEG gamma = dealers amplify moves · ⚠️ earnings &lt;7 days = flow is hedging noise, not signal.
+    NEG gamma = dealers amplify moves · ⚠️ earnings &lt;7 days = flow is hedging noise, not signal ·
+    "est" earnings dates are the last report + one quarter.
     Signals under forward test — not proven, not advice.</div>
   </div>
 """
@@ -253,6 +255,8 @@ def main(argv=None) -> int:
     ap.add_argument("--top", type=int, default=3)
     ap.add_argument("--bottom", type=int, default=3)
     ap.add_argument("--no-live", action="store_true", help="skip the live snapshot column")
+    ap.add_argument("--risk", type=float, default=100.0,
+                    help="dollars risked per swing for the position-size line")
     ap.add_argument("--whale-file", default=None,
                     help="get_market_sector_etfs JSON for the whale layer (default data/_whale.json)")
     ap.add_argument("--whale-weight", type=float, default=12.0,
@@ -272,6 +276,10 @@ def main(argv=None) -> int:
         return 1
     bench_closes = [c["close"] for c in bench_candles]
     regime, detail = market_regime(bench_candles)
+    from rotation import sma, pct_return, LB_3M, SMA_FAST, SMA_SLOW
+    bench = {"last": bench_closes[-1], "sma50": sma(bench_closes, SMA_FAST),
+             "sma200": sma(bench_closes, SMA_SLOW), "ret_3m": pct_return(bench_closes, LB_3M)}
+    data_through = bench_candles[-1]["date"]
     risk_off = regime == "RISK-OFF"
 
     live = {} if args.no_live else parse_snapshot(
@@ -323,7 +331,8 @@ def main(argv=None) -> int:
     note = SOURCE_NOTE if use_whale else "Prices and live quotes from Massive; daily OHLC is split-adjusted."
     doc = render_html(scores, regime, detail, use_flow=False,
                       spark_by_ticker=spark_by_ticker, generated=generated,
-                      live_mode=use_live, whale_mode=use_whale, source_note=note)
+                      live_mode=use_live, whale_mode=use_whale, source_note=note,
+                      data_through=data_through, bench=bench, risk_dollars=args.risk)
     if args.journal:
         card = watchlist_card(args.journal)
         if card:
