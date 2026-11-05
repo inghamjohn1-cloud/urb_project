@@ -2,8 +2,19 @@
   "permissions": {
     "allow": [
       "mcp__Massive",
+      "mcp__Massive__*",
       "mcp__TradingView",
-      "mcp__Unusual_Whales"
+      "mcp__TradingView__*",
+      "mcp__Unusual_Whales",
+      "mcp__Unusual_Whales__*",
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Artifact",
+      "SendUserFile"
     ]
   }
 }
