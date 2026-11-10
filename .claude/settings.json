@@ -14,7 +14,13 @@
       "Glob",
       "Grep",
       "Artifact",
-      "SendUserFile"
+      "SendUserFile",
+      "ToolSearch",
+      "ReadNotifications",
+      "mcp__Claude_Code_Remote",
+      "mcp__Claude_Code_Remote__*",
+      "mcp__claude-code-remote",
+      "mcp__claude-code-remote__*"
     ]
   }
 }
